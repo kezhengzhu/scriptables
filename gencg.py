@@ -56,7 +56,7 @@ def write_grochain(molecule, bead, sigma, kb=0, mbeads=1, title=""):
     # cgnr = charge group number. no charges so 1 atom = 1 charge group, ignore last 3 columns
     # resnr = residue number. we consider 1 atom = 1 residuce
     for i in range(mbeads):
-        fout.write("  {:<6d}{:<6}{:<7d}{:<8}{:<6}\n".format(i+1,bead,1,molecule,bead,i+1))
+        fout.write("  {:<6d}{:<6}{:<7d}{:<8}{:<6}{:<6d}\n".format(i+1,bead,1,molecule,bead,i+1))
     if mbeads > 1:
         strs = ["i","j","func","r0 (nm)","kb (kJ/(mol nm2))"]
         fout.write("\n[ bonds ]\n; {:<5}{:<5}{:<6}{:<10}{:<10}\n".format(*strs))
@@ -77,6 +77,8 @@ def gen_grochain(purefile, molname=[]):
     else:
         raise Exception("Unknown variable of file name or wrong file extension (only .xlsx and .csv)")
 
+    titles = []
+
     for i in range(len(df)):
         comp = df.iloc[i,0]
         sig = np.asscalar(df.iloc[i,6])*1.0
@@ -84,12 +86,15 @@ def gen_grochain(purefile, molname=[]):
         title = df.iloc[i,8]
         kb = np.asscalar(df.iloc[i,9])*1.0
 
+        titles.append(title)
         if len(molname) != len(df):
             mol = "{}{:1d}".format(comp,mbeads)
+            molname.append(mol)
         else:
             mol = molname[i]
         write_grochain(mol,comp,sig,kb,mbeads,title)
-    return
+
+    return molname, titles
 
 def main():
     gen_grochain("pure_comp.xlsx", ["MET"])
