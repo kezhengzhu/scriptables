@@ -204,4 +204,4 @@ def main():
 if __name__ == '__main__':
     main()
 else:
-    print("Loading functions from genNBTable.py")
+    print("Loading functions from nbtable.py")
