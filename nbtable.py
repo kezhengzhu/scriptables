@@ -93,6 +93,7 @@ def writeffnb(purefile,nbfile="",output="ffnonbonded"):
         fout.write(nb_param)
 
     fout.close()
+    return
 
 def gen_nb_table(purefile, nbfile="", cutoff=5.0, delr=0.002):
     '''
@@ -193,6 +194,7 @@ def gen_nb_table(purefile, nbfile="", cutoff=5.0, delr=0.002):
 
                 fout.write("{:12.10e}   {:12.10e} {:12.10e}   {:12.10e} {:12.10e}   {:12.10e} {:12.10e}\n".format(r,f,fp,g,gp,h,hp))
         fout.close()
+    return
 
 def main():
     writeffnb("pure_comp.xlsx","nb_table.xlsx")
