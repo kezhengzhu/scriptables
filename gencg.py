@@ -61,7 +61,7 @@ def write_grochain(molecule, bead, sigma, kb=0, mbeads=1, title=""):
         strs = ["i","j","func","r0 (nm)","kb (kJ/(mol nm2))"]
         fout.write("\n[ bonds ]\n; {:<5}{:<5}{:<6}{:<10}{:<10}\n".format(*strs))
         for i in range(mbeads-1):
-            fout.write("{:<5d}{:<5d}{:<6d}{:<10.4f}{:<10.1f}\n".format(i+1,i+2,1,sigma,kb))
+            fout.write("  {:<5d}{:<5d}{:<6d}{:<10.4f}{:<10.1f}\n".format(i+1,i+2,1,sigma,kb))
     fout.write("\n")
     fout.close()
     return
