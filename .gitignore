@@ -1,3 +1,16 @@
+# Data files for as we only want to track scripts
+*.csv
+*.xlsx
+*.xvg
+*.gro
+*.trr
+*.itp
+*.top
+*.edr
+*.cpt
+*.tpr
+*.xtc
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
