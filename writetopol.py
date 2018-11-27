@@ -39,14 +39,12 @@ def write_topol_base(molList,nmol,outname="topol.top",sys="Pure",ff="forcefield.
     fout.close()
 
 def main():
-    pdf = pd.read_excel("pure_comp2.xlsx")
+    writeffnb("pure_comp.xlsx")
+    gen_nb_table("pure_comp.xlsx")
 
-    writeffnb("pure_comp2.xlsx")
-    gen_nb_table("pure_comp2.xlsx")
-
-    molList, titleList= gen_grochain("pure_comp2.xlsx")
+    molList, titleList= gen_grochain("pure_comp.xlsx")
     writeff(titleList)
-    write_topol_base(molList,300)
+    write_topol_base(molList,500)
     return
 
 if __name__ == '__main__':
