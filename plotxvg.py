@@ -8,6 +8,12 @@ import math
 
 
 class Graph(object):
+    '''
+    Class of Graph contains the following information:
+    How many subplots on a pyplot figure, figure size, and axis labels for the
+    different subplots. As well as a dictionary of plots (as key) corresponding
+    to the subplot that they are plotted onto (as value)
+    '''
     def __init__(self, xlabels=None, ylabels=None, plots=None, figsize=(12.8,6.4), subplots=1, titles=None):
         # List of xlabels and ylabels: should be no longer than number of subplots
         if xlabels == None: xlabels = []
@@ -142,12 +148,16 @@ class Graph(object):
         self.set_subplots()
         self.set_labels()
         self.plot_graphs()
-        if len(savefig) > 0:
-            self.fig.savefig(savefig)
+        if isinstance(savefig,str) and len(savefig) > 0:
+            self.fig.savefig(savefig, bbox_inches="tight")
         plt.show()
 
-
 class Plot(object):
+    '''
+    Class of Plot:
+    Contains x and y values, as well as labels and file origin. Also contains
+    color information and plot style (TODO)
+    '''
     def __init__(self, x=None, y=None, label="plot", xvgfile="", color="r"):
         if x == None: x = []
         if y == None: y = []
@@ -198,22 +208,31 @@ class Plot(object):
         self.y = y 
 
 def main():
-    fn1 = "pressure_nvteq.xvg"
-    fn2 = "pressure_nvt.xvg"
-    p1 = Plot(xvgfile=fn1)
-    p12 = Plot(xvgfile="pressure_nvteq2.xvg", color="b")
-    p2 = Plot(xvgfile=fn2)
-    p22 = Plot(xvgfile="pressure_nvt2.xvg", color="b")
-
-    print(len(p1.x), len(p2.x))
-
-    g = Graph(subplots=2)
-    g.add_plots(p1, p12, subplot=1)
-    g.add_plots(p2, p22, subplot=2)
-    g.set_xlabels("Time (ps)", "Time (ps)")
-    g.set_ylabels("Pressure (bar)","Pressure (bar)")
-    g.set_titles(*["Pressure v Time"]*2)
+    pl1 = Plot(xvgfile="pressure_5.xvg")
+    pl1.shorten(0.1)
+    pl1.clear_int(100)
+    g = Graph()
+    g.add_plots(pl1)
+    g.set_xlabels("Time (ps)")
+    g.set_ylabels("Pressure (bar)")
+    g.set_titles("Pressure v Time")
     g.draw()
+    # fn1 = "pressure_nvteq.xvg"
+    # fn2 = "pressure_nvt.xvg"
+    # p1 = Plot(xvgfile=fn1)
+    # p12 = Plot(xvgfile="pressure_nvteq2.xvg", color="b")
+    # p2 = Plot(xvgfile=fn2)
+    # p22 = Plot(xvgfile="pressure_nvt2.xvg", color="b")
+
+    # print(len(p1.x), len(p2.x))
+
+    # g = Graph(subplots=2)
+    # g.add_plots(p1, p12, subplot=1)
+    # g.add_plots(p2, p22, subplot=2)
+    # g.set_xlabels("Time (ps)", "Time (ps)")
+    # g.set_ylabels("Pressure (bar)","Pressure (bar)")
+    # g.set_titles(*["Pressure v Time"]*2)
+    # g.draw()
 
 
 if __name__ == '__main__':
