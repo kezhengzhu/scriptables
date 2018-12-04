@@ -4,7 +4,7 @@
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
-import math
+import math, random
 
 
 class Graph(object):
@@ -153,18 +153,23 @@ class Graph(object):
         plt.show()
 
 class Plot(object):
+    colors = ['r', 'b', 'g', 'c', 'm', 'y', 'k']
     '''
     Class of Plot:
     Contains x and y values, as well as labels and file origin. Also contains
     color information and plot style (TODO)
     '''
-    def __init__(self, x=None, y=None, label="plot", xvgfile="", color="r"):
+    def __init__(self, x=None, y=None, label="plot", xvgfile="", color=""):
         if x == None: x = []
         if y == None: y = []
         self.x = x
         self.y = y
         self.label = label
-        self.color = color
+        if color in Plot.colors:
+            self.color = color
+        else:
+            ind = math.floor(random.random()*7)
+            self.color = Plot.colors[ind]
 
         if len(xvgfile) > 4 and xvgfile[-4:].lower() == ".xvg":
             self.read_xvg(xvgfile)
@@ -207,15 +212,33 @@ class Plot(object):
         self.x = x
         self.y = y 
 
+    def ravg_plot(self, color="b"):
+        x = []
+        y = []
+        for i in range(len(self.y)):
+            x.append(self.x[i])
+            if i == 0:
+                y.append(self.y[i])
+            else:
+                elem = ((y[i-1]*i) + self.y[i]) / (i+1)
+                y.append(elem)
+        return Plot(x,y,"Running average of "+self.label,color=color)
+
+    def set_color(self, color):
+        assert(isinstance(color,str))
+        if color in Plot.colors:
+            self.color = color
+
 def main():
-    pl1 = Plot(xvgfile="pressure_5.xvg")
-    pl1.shorten(0.1)
-    pl1.clear_int(100)
+    pl1 = Plot(xvgfile="temp8.xvg",color="r")
+    # pl1.shorten(0.1)
+    pl1.clear_int(1000)
+    pl1a = pl1.ravg_plot(color="b")
     g = Graph()
-    g.add_plots(pl1)
+    g.add_plots(pl1, pl1a)
     g.set_xlabels("Time (ps)")
-    g.set_ylabels("Pressure (bar)")
-    g.set_titles("Pressure v Time")
+    g.set_ylabels("Temp (K)")
+    g.set_titles("Temp v Time")
     g.draw()
     # fn1 = "pressure_nvteq.xvg"
     # fn2 = "pressure_nvt.xvg"
