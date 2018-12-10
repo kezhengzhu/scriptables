@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt 
 import math, random
+import copy
 
 
 class Graph(object):
@@ -14,7 +15,7 @@ class Graph(object):
     different subplots. As well as a dictionary of plots (as key) corresponding
     to the subplot that they are plotted onto (as value)
     '''
-    def __init__(self, xlabels=None, ylabels=None, plots=None, figsize=(12.8,6.4), subplots=1, titles=None):
+    def __init__(self, xlabels=None, ylabels=None, plots=None, figsize=(12.8,6.4), subplots=1, titles=None, legends=False):
         # List of xlabels and ylabels: should be no longer than number of subplots
         if xlabels == None: xlabels = []
         if ylabels == None: ylabels = []
@@ -38,6 +39,9 @@ class Graph(object):
         ncols = math.ceil(math.sqrt(self.subplots))
         self.subplot_shape = (math.ceil(self.subplots/ncols), ncols)
 
+        self.spxlim = [None] * self.subplots
+        self.spylim = [None] * self.subplots
+
         # Setting up figure drawing
         self.set_subplots()
 
@@ -48,6 +52,18 @@ class Graph(object):
 
         for pl in plots:
             self.plots[pl] = 1
+
+        self.legends = legends
+
+    def __repr__(self):
+        s = "Graph of {:d} subplots: \n".format(self.subplots)
+        for i in range(self.subplots):
+            n = sum(pl == i+1 for pl in self.plots.values())
+            s += "\tSubplot {:d}: {:d} plots".format(i+1, n)
+            if i != self.subplots - 1:
+                s += "\n"
+        return s
+
 
     def add_plots(self, *plots, subplot=1):
         # Check if the no. of arguments are correctly input and subplot index is correct
@@ -106,6 +122,8 @@ class Graph(object):
         self.subplots = subplots
         ncols = math.ceil(math.sqrt(self.subplots))
         self.subplot_shape = (math.ceil(self.subplots/ncols), ncols)
+        self.spxlim = [None] * self.subplots
+        self.spylim = [None] * self.subplots
         self.set_subplots()
 
     def set_subplots(self):
@@ -116,8 +134,29 @@ class Graph(object):
             ax = self.fig.add_subplot(*self.subplot_shape,subp+1)
             ax.margins(x=0)
             self.subplot.append(ax)
-
         return self.subplot
+
+    def ylim(self, bottom=None, top=None, subplot=1, y_range=None):
+        (b,t) = self.subplot[subplot-1].get_ylim()
+        if not isinstance(y_range, tuple):
+            if isinstance(top, float) or isinstance(top, int):
+                t = top
+            if isinstance(bottom, float) or isinstance(bottom, int):
+                b = bottom
+        elif isinstance(y_range, tuple) and len(y_range) == 2:
+            (b,t) = y_range
+        self.spylim[subplot-1] = (b,t)
+
+    def xlim(self, left=None, right=None, subplot=1, x_range=None):
+        (l,r) = self.subplot[subplot-1].get_xlim()
+        if not isinstance(x_range, tuple):
+            if isinstance(left, float) or isinstance(left, int):
+                l = left
+            if isinstance(right, float) or isinstance(right, int):
+                r = right
+        elif isinstance(x_range, tuple) and len(x_range) == 2:
+            (l,r) = x_range
+        self.spxlim[subplot-1] = (l,r)
 
     def set_labels(self):
         # Set titles and labels onto subplots
@@ -137,31 +176,66 @@ class Graph(object):
             else:
                 self.subplot[i].set_ylabel(self.ylabels[i])
 
+    def set_lims(self):
+        # Set the limits onto the subplots
+        for i in range(self.subplots):
+            if isinstance(self.spxlim[i], tuple):
+                self.subplot[i].set_xlim(*self.spxlim[i])
+            if isinstance(self.spylim[i], tuple):
+                self.subplot[i].set_ylim(*self.spylim[i])
+
     def plot_graphs(self):
         # Function draws all the plots that have been loaded onto the respective subplots
         for pl in self.plots:
             sp = self.plots[pl]
-            self.subplot[sp-1].plot(pl.x, pl.y, c=pl.color, label=pl.label)
+            self.subplot[sp-1].plot(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
 
     def draw(self, savefig=""):
         # Draw function should be the one called. Basically uses existing functions to draw
         self.set_subplots()
         self.set_labels()
         self.plot_graphs()
+        self.set_lims()
+        if self.legends:
+            for sp in self.subplot:
+                sp.legend()
         if isinstance(savefig,str) and len(savefig) > 0:
             self.fig.savefig(savefig, bbox_inches="tight")
         plt.show()
 
+    def add_hline(self, yval, subplot=1, color='k', style='--'):
+        x_range = self.spxlim[subplot-1]
+        if not isinstance(x_range, tuple):
+            x_range = self.subplot[subplot-1].get_xlim()
+            self.spxlim[subplot-1] = x_range
+
+        pl = Plot(list(x_range),[yval, yval], label="y ={:4.1f}".format(yval), color=color, style=style)
+        self.add_plots(pl, subplot=subplot)
+
+    def add_vline(self, xval, subplot=1, color='k', style='--'):
+        y_range = self.spylim[subplot-1]
+        if not isinstance(y_range, tuple):
+            y_range = self.subplot[subplot-1].get_ylim()
+            self.spylim[subplot-1] = y_range
+            
+        pl = Plot([xval, xval], list(y_range), label="x ={:4.1f}".format(xval), color=color, style=style)
+        self.add_plots(pl, subplot=subplot)
+
+
 class Plot(object):
-    colors = ['r', 'b', 'g', 'c', 'm', 'y', 'k']
+    colors = list('rbgcmyk')
+    markers = list('.,ov^<>1234sp*hHxDd|_')
+    styles = ['-', '--', '-.', ':']
     '''
     Class of Plot:
     Contains x and y values, as well as labels and file origin. Also contains
     color information and plot style (TODO)
     '''
-    def __init__(self, x=None, y=None, label="plot", xvgfile="", color=""):
-        if x == None: x = []
-        if y == None: y = []
+    def __init__(self, x=None, y=None, label="plot", xvgfile="", color="", marker="", style="-"):
+        # Initialises plots by taking in ndarray or list as points, else initialise empty plot
+        # if xvgfile is valid takes in xvgfile and appends to plot. 
+        if (not (isinstance(x, list) or isinstance(x, np.ndarray))): x = []
+        if (not (isinstance(y, list) or isinstance(y, np.ndarray))): y = []
         self.x = x
         self.y = y
         self.label = label
@@ -170,11 +244,41 @@ class Plot(object):
         else:
             ind = math.floor(random.random()*7)
             self.color = Plot.colors[ind]
+        self.marker = marker
+        self.style = style
 
         if len(xvgfile) > 4 and xvgfile[-4:].lower() == ".xvg":
+            # There is no clearing function here also xvg files APPENDS to existing 
+            # x and y list / array
             self.read_xvg(xvgfile)
 
+    def __repr__(self):
+        return "Plot object <{}>".format(self.label)
+
+    def rm_pointers(self):
+        # Replaces x and y lists with a copy of it to avoid pointer issues
+        if isinstance(self.x, list):
+            self.x = copy.copy(self.x)
+        if isinstance(self.y, list):
+            self.y = copy.copy(self.y)
+
+    def tolist(self):
+        # Converts ndarray x and y to lists
+        if isinstance(self.x, np.ndarray):
+            self.x = self.x.tolist()
+        if isinstance(self.y, np.ndarray):
+            self.y = self.y.tolist()
+
+    def toarray(self):
+        # Converts lists x and y to np.ndarrays
+        if isinstance(self.x, list):
+            self.x = np.array(self.x)
+        if isinstance(self.y, list):
+            self.y = np.array(self.y)
+
     def read_xvg(self, filename):
+        # Reads an xvg file and tries to append it to x and y. 
+        # Ensures that it works on both lists and ndarrays
         if (not isinstance(filename, str)) or filename[-4:] != ".xvg":
             raise Exception("read_xvg failed due to wrong input or wrong file extension")
 
@@ -185,10 +289,19 @@ class Plot(object):
                 else:
                     cols = line.split()
                     if len(cols) == 2:
-                        self.x.append(float(cols[0]))
-                        self.y.append(float(cols[1]))
+                        if isinstance(self.x, list):
+                            self.x.append(float(cols[0]))
+                        elif isinstance(self.x, np.ndarray):
+                            np.append(self.x, float(cols[0]))
+                        if isinstance(self.y, list):
+                            self.y.append(float(cols[1]))
+                        elif isinstance(self.y, np.ndarray):
+                            np.append(self.y, float(cols[1]))
 
     def clear_int(self, interval):
+        # Function removes points at a fixed interval, keeping first and last value
+        # i.e. [1,2,3,4,5,6,7,8,9,...98,99] removes at interval 4 gives
+        # [1,5,9,13...97,99]
         x = []
         y = []
         for i in range(len(self.x)):
@@ -198,10 +311,22 @@ class Plot(object):
             elif i == len(self.x)-1:
                 x.append(self.x[i])
                 y.append(self.y[i])
-        self.x = x
-        self.y = y
+        if isinstance(self.x, list):
+            self.x = x
+        elif isinstance(self.x, np.ndarray):
+            self.x = np.array(x)
+        else:
+            print("clear_int() failed, .x not a list or ndarray")
+        if isinstance(self.y, list):
+            self.y = y
+        elif isinstance(self.y, np.ndarray):
+            self.y = np.array(y)
+        else:
+            print("clear_int() failed, .y not a list or ndarray")
 
     def shorten(self, ratio):
+        # Shortens the plot by a certain ratio.
+        # 0.4 shorten of 1-10 gives 1-4
         x = []
         y = []
         assert(ratio > 0 and ratio < 1)
@@ -209,10 +334,25 @@ class Plot(object):
         for i in range(length):
             x.append(self.x[i])
             y.append(self.y[i])
-        self.x = x
-        self.y = y 
+        if isinstance(self.x, list):
+            self.x = x
+        elif isinstance(self.x, np.ndarray):
+            self.x = np.array(x)
+        else:
+            print("shorten() failed, .x not a list or ndarray")
+        if isinstance(self.y, list):
+            self.y = y
+        elif isinstance(self.y, np.ndarray):
+            self.y = np.array(y)
+        else:
+            print("shorten() failed, .y not a list or ndarray")
 
     def ravg_plot(self, color="b"):
+        # Returns another Plot object which plots the running average of this plot
+        # Running average calculation is made faster by taking the previous point,
+        # multiplying it by it's index, adding current point and dividing by index + 1
+        # i.e. average of 1st 100 points (0-99) = 10
+        # current point = 20. Current running avg = (10*100 + 20) / (101) = 10.099
         x = []
         y = []
         for i in range(len(self.y)):
@@ -225,9 +365,23 @@ class Plot(object):
         return Plot(x,y,"Running average of "+self.label,color=color)
 
     def set_color(self, color):
+        # Set self.color to what the user desire
         assert(isinstance(color,str))
         if color in Plot.colors:
             self.color = color
+
+    def set_style(self, style):
+        # Set self.style to what the user desire
+        assert(isinstance(style,str))
+        if style in Plot.styles:
+            self.style = style
+
+    def set_marker(self, marker):        
+        # Set self.marker to what the user desire
+        assert(isinstance(marker,str))
+        if marker in Plot.markers:
+            self.marker = marker
+
 
 def main():
     pl1 = Plot(xvgfile="temp8.xvg",color="r")

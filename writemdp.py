@@ -16,7 +16,24 @@ def write_opt(opt, val, comment=None, dp=2):
     return optval + "\n"
 
 
-def write_mdp()
+def write_mdp(fname, ens, dt, nsteps, xvfop=1000, enop=1, temperature=None, pressure=None, title="MD Run"):
+    fout = open(fname, "w")
+    fout.write("; Title = {}, Filename = {}\n\n".format(title,fname))
+    fout.write("; Run parameters \n")
+    if fname.lower() == "nve":
+
+    elif fname.lower() == "nvt":
+
+    elif fname.lower() == "npt":
+
+    elif fname.lower() == "em":
+        fout.write(write_opt("integrator", "steep", comment="steepest descent algorithm for energy minimization"))
+        fout.write(write_opt("nsteps", 50000, comment="maximum no. of steps to minimize"))
+        fout.write(write_opt("", , comment=""))
+    else:
+        raise Exception("Unrecognised ensemble input!")
+
+    fout.write(write_opt("integrator", "md" , comment=""))
 
 
 def main():
