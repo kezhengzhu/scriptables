@@ -25,7 +25,7 @@ def main():
     g.set_xlabels("r (A)")
     g.set_ylabels("u(r)/kb (K)")
     g.set_titles("Mie Potential Plot")
-    g.draw(savefig="test.png")
+    g.draw(savefig="test.png", dpi=1200)
 
 if __name__ == '__main__':
     main()

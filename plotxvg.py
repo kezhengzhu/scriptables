@@ -190,7 +190,7 @@ class Graph(object):
             sp = self.plots[pl]
             self.subplot[sp-1].plot(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
 
-    def draw(self, savefig=""):
+    def draw(self, savefig="", dpi=600):
         # Draw function should be the one called. Basically uses existing functions to draw
         self.set_subplots()
         self.set_labels()
@@ -200,7 +200,7 @@ class Graph(object):
             for sp in self.subplot:
                 sp.legend()
         if isinstance(savefig,str) and len(savefig) > 0:
-            self.fig.savefig(savefig, bbox_inches="tight")
+            self.fig.savefig(savefig, bbox_inches="tight", dpi=dpi)
         plt.show()
 
     def add_hline(self, yval, subplot=1, color='k', style='--'):
