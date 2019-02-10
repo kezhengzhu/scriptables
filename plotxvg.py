@@ -188,7 +188,14 @@ class Graph(object):
         # Function draws all the plots that have been loaded onto the respective subplots
         for pl in self.plots:
             sp = self.plots[pl]
-            self.subplot[sp-1].plot(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
+            if pl.axes == 'loglog':
+                self.subplot[sp-1].loglog(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
+            elif pl.axes == 'semilogx':
+                self.subplot[sp-1].semilogx(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
+            elif pl.axes == 'semilogy':
+                self.subplot[sp-1].semilogy(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
+            else:
+                self.subplot[sp-1].plot(pl.x, pl.y, color=pl.color, marker=pl.marker, linestyle=pl.style, label=pl.label)
 
     def draw(self, savefig="", dpi=600):
         # Draw function should be the one called. Basically uses existing functions to draw
@@ -231,7 +238,7 @@ class Plot(object):
     Contains x and y values, as well as labels and file origin. Also contains
     color information and plot style (TODO)
     '''
-    def __init__(self, x=None, y=None, label="plot", xvgfile="", color="", marker="", style="-"):
+    def __init__(self, x=None, y=None, label="plot", xvgfile="", color="", marker="", style="-", axes="linear"):
         # Initialises plots by taking in ndarray or list as points, else initialise empty plot
         # if xvgfile is valid takes in xvgfile and appends to plot. 
         if (not (isinstance(x, list) or isinstance(x, np.ndarray))): x = []
@@ -246,6 +253,7 @@ class Plot(object):
             self.color = Plot.colors[ind]
         self.marker = marker
         self.style = style
+        self.axes = axes.lower() # 'linear', 'semilogx', 'semilogy', 'loglog'
 
         if len(xvgfile) > 4 and xvgfile[-4:].lower() == ".xvg":
             # There is no clearing function here also xvg files APPENDS to existing 

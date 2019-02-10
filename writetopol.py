@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd 
 from nbtable import *
 from gencg import *
-
+import os
 
 def writeff(pureCompList, outname="forcefield.itp",nonbonded="ffnonbonded.itp"):
     assert(type(pureCompList) == list and len(pureCompList) > 0)
@@ -39,10 +39,11 @@ def write_topol_base(molList,nmol,outname="topol.top",sys="Pure",ff="forcefield.
     fout.close()
 
 def main():
-    writeffnb("pure_comp.xlsx")
-    gen_nb_table("pure_comp.xlsx")
+    os.chdir("octtest")
+    writeffnb("pure_comp2.xlsx")
+    gen_nb_table("pure_comp2.xlsx")
 
-    molList, titleList= gen_grochain("pure_comp.xlsx")
+    molList, titleList= gen_grochain("pure_comp2.xlsx")
     writeff(titleList)
     write_topol_base(molList,500)
     return

@@ -1,3 +1,6 @@
+gmx insert-molecules -ci octane.gro -o octbox.gro -box 5 -nmol 200
+gmx make_ndx -f octbox.gro -o index.ndx
+
 runcase_1()
 {
     gmx grompp -f nvt.mdp -c nvt_eq.gro -n index.ndx -p topol.top -o $1.tpr
