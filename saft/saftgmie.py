@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd 
 from math import *
 import matplotlib.pyplot as plt 
+import trace
 
 import defconst as cst
 import methods as mt 
@@ -133,10 +134,9 @@ class System(object):
         mole_tol = sum(self.moles.values())
         for comp in self.comps:
             debrogv = pow(self.comps[comp].thdebroglie(self.temp),3)
-            nden = self.moles[comp] / (self.volume * pow(cst.nmtom, 3))
-            molfrac = self.moles[comp] / mole_tol    
+            molfrac = self.moles[comp] / mole_tol
+            nden = molfrac * self.__nden()
             result = result + molfrac * log(nden * debrogv)
-
         return result - 1
 
     def a_mono(self):
@@ -275,8 +275,8 @@ class System(object):
     def __a_hs(self):
 
         xi3 = self.__xi_m(3) # dimless
-        print('With pure imp:',(4*xi3 - 3*pow(xi3,2))/pow(1-xi3,2))
-        print('This ans:', 6 * self.__a_hs_xiterm() / (pi* self.__nden()))
+        # print('With pure imp:',(4*xi3 - 3*pow(xi3,2))/pow(1-xi3,2))
+        # print('This ans but with segden:', 6 * self.__a_hs_xiterm() / (pi* self.__segden()))
         return 6 * self.__a_hs_xiterm() / (pi * self.__nden())
     
     def __a_hs_xiterm(self):
@@ -320,13 +320,13 @@ class System(object):
         gtypes = self.getgtypes()
         cgss = self.__cgshapesum()
         for g1 in gtypes:
-            xsk = self.__gshapesum(g1)
+            xsk = self.__gshapesum(g1)/cgss
             for g2 in gtypes:
-                xsl = self.__gshapesum(g2)
+                xsl = self.__gshapesum(g2)/cgss
                 a1kl = self.__a_1kl(g1 + g2)
-                a1sum += xsk * xsl * a1kl
+                a1sum += xsk * xsl * a1kl 
 
-        result = 1 / (cst.k * self.temp * cgss) * a1sum 
+        result = 1 / (cst.k * self.temp) * cgss * a1sum 
         return result
 
     def __a_1kl(self, gcomb):
@@ -359,13 +359,13 @@ class System(object):
         gtypes = self.getgtypes()
         cgss = self.__cgshapesum()
         for g1 in gtypes:
-            xsk = self.__gshapesum(g1)
+            xsk = self.__gshapesum(g1)/cgss
             for g2 in gtypes:
-                xsl = self.__gshapesum(g2)
+                xsl = self.__gshapesum(g2)/cgss
                 a2kl = self.__a_2kl(g1 + g2)
                 a2sum += xsk * xsl * a2kl
 
-        result = 1 / (pow(cst.k * self.temp,2) * cgss) * a2sum 
+        result = 1 / (pow(cst.k * self.temp,2)) * cgss * a2sum 
         return result
 
     def __a_2kl(self, gcomb):
@@ -387,7 +387,7 @@ class System(object):
         t2 = 2*pow(x0kl, att+rep) * (self.__as1kl(gcomb, att+rep) + self.__bkl(gcomb, att+rep))
         t3 = pow(x0kl, 2*rep) * (self.__as1kl(gcomb, 2*rep) + self.__bkl(gcomb, 2*rep))
 
-        result = 0.5 * khs * (1-corrf) * epsikl * pow(ckl, 2) * (t1 - t2 + t3)
+        result = 0.5 * khs * (1+corrf) * epsikl * pow(ckl, 2) * (t1 - t2 + t3)
 
         return result
 
@@ -423,13 +423,13 @@ class System(object):
         gtypes = self.getgtypes()
         cgss = self.__cgshapesum()
         for g1 in gtypes:
-            xsk = self.__gshapesum(g1)
+            xsk = self.__gshapesum(g1)/cgss
             for g2 in gtypes:
-                xsl = self.__gshapesum(g2)
+                xsl = self.__gshapesum(g2)/cgss
                 a3kl = self.__a_3kl(g1 + g2)
                 a3sum += xsk * xsl * a3kl
 
-        result = 1 / (pow(cst.k * self.temp,3) * cgss) * a3sum 
+        result = 1 / (pow(cst.k * self.temp,3)) * cgss * a3sum 
         return result
 
     def __a_3kl(self, gcomb):
@@ -557,18 +557,6 @@ class System(object):
         result = 1 / (2 * pi * epsi * pow(hsd,3)) * (t1 - t2 + t3)
 
         return result
-
-    def __der_segden(self, f, delta=0.001, **kwargs):
-        '''
-        get d/dps by inputing a function 
-        '''
-        segden = self.__segden()
-        self.sdt = 1+delta
-        fh = f(**kwargs)
-        self.sdt = 1-delta
-        fl = f(**kwargs)
-
-        return (fh - fl) / (2 * delta * segden)
 
     def __g2(self, gcomp):
         '''
@@ -714,29 +702,8 @@ class Component(object):
         '''
         Takes in component mass (au) and temperature (K) and return thermal de broglie wavelength
         '''
-        Lambda_sq = cst.h**2 / (2 * pi * self.mass * cst.au * cst.k * temp)
+        Lambda_sq = pow(cst.h,2) * 1e3 * cst.Na / (2 * pi * self.mass * cst.k * temp)
         return sqrt(Lambda_sq)
-
-    # def param_ii(self, param="sigma", temp=None):
-    #     result = 0.
-    #     for g1 in self.gtypes:
-    #         zki = self.__zki(g1)
-    #         for g2 in self.gtypes:
-    #             zli = self.__zki(g2)
-    #             if param == "sigma":
-    #                 p = (g1+g2).sigma
-    #             elif param == "epsilon":
-    #                 p = (g1+g2).epsilon
-    #             elif param == "rep":
-    #                 p = (g1+g2).rep
-    #             elif param == "att":
-    #                 p = (g1+g2).att
-    #             else:
-    #                 mt.checkerr(isinstance(temp, float) and param=="hsd", "For hsd in param_ii please input temp as float and use param='hsd'.")
-    #                 p = (g1+g2).hsdiam(temp)
-    #             result += zki * zli * p
-
-    #     return result
 
     def get_gtypeii(self):
         sig = 0.
@@ -891,33 +858,33 @@ def main():
     # print(octane.param_ii("sigma"), octane.param_ii("hsd",273.), octane.param_ii("rep"))
     # print(ljmol.param_ii("sigma"), ljmol.param_ii("hsd",273.), ljmol.param_ii("rep"))
 
-    s.temp = 300
-    s.volume = 217.58
-    print('cgss is given by: ', s._System__cgshapesum())
-    print('A-IDEAL term: =======')
-    print('{:18s}'.format('value: '), s.a_ideal())
-    print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
-    print('A-MONO term: ========')
-    print('{:18s}'.format('value: '), s.a_mono())
-    print('{:18s}'.format('a_hs: '), s._System__a_hs())
-    print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
-    print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
-    print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
-    print('A-CHAIN term: =======')
-    print('{:18s}'.format('value: '), s.a_chain())
-    print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
-    print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
-    print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
-    print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
-    print('=====================')
-    print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
-    print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
-    print('{:18s}'.format('System size:'), s._System__moltol())
-    print('=====================')
-    # v = np.logspace(2,4,1000)
-    (P, rho, A) = s.getpv(217.58, temperature=300)
-    print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
-    print('{:18s}'.format('A per mol:'), A*cst.Na)
+    # s.temp = 300
+    # s.volume = 217.58
+    # print('cgss is given by: ', s._System__cgshapesum())
+    # print('A-IDEAL term: =======')
+    # print('{:18s}'.format('value: '), s.a_ideal())
+    # print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
+    # print('A-MONO term: ========')
+    # print('{:18s}'.format('value: '), s.a_mono())
+    # print('{:18s}'.format('a_hs: '), s._System__a_hs())
+    # print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
+    # print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
+    # print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
+    # print('A-CHAIN term: =======')
+    # print('{:18s}'.format('value: '), s.a_chain())
+    # print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
+    # print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
+    # print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
+    # print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
+    # print('=====================')
+    # print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
+    # print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
+    # print('{:18s}'.format('System size:'), s._System__moltol())
+    # print('=====================')
+    # # v = np.logspace(2,4,1000)
+    # (P, rho, A) = s.getpv(217.58, temperature=300)
+    # print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
+    # print('{:18s}'.format('A per mol:'), A*cst.Na)
     
     # Z = P/(rho * cst.k * 338)
     # pl = Plot(P*cst.patobar,Z, label="temp=338", color='b',axes="linear")
@@ -929,25 +896,25 @@ def main():
     # g.xlim(0,50)
     # g.draw()
 
-    # pls = []
-    # temp = np.linspace(200,350,7)
-    # colors = list('rbgcmyk')
-    # count = 0
-    # for t in temp:
-    #     v = np.logspace(2,4,1000)
-    #     (P, rho, A) = s.getpv(v, temperature=t)
-    #     Z = P/(rho * cst.k * t)
-    #     pls.append(Plot(P*cst.patobar, Z, label="temp = {:5.1f}".format(t), color=colors[count], axes="linear"))
-    #     count+=1
+    pls = []
+    temp = np.linspace(300,600,6)
+    colors = list('rbgcmyk')
+    count = 0
+    for t in temp:
+        v = np.logspace(2.5,5,1000)
+        (P, rho, A) = s.getpv(v, temperature=t)
+        Z = P/(rho * cst.k * t)
+        pls.append(Plot(P*cst.patobar,Z, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
+        count+=1
 
-    # g = Graph(legends=True)
-    # g.add_plots(*pls)
-    # g.set_xlabels("pressure (bar)")
-    # g.set_ylabels("Z = P/(rho*k*T")
-    # g.set_titles("pressure v density isotherms")
-    # g.ylim(0,1.5)
+    g = Graph(legends=True)
+    g.add_plots(*pls)
+    g.set_xlabels("pressure (bar)")
+    g.set_ylabels("Z")
+    g.set_titles("pressure v density isotherms")
+    g.ylim(0,1)
     # g.xlim(0,50)
-    # g.draw()
+    g.draw()
     '''
     {    T,   p0/10^6,  1/vlo,   1/vvo, dhf/1000.0,     aact,     aid,   amono,        ac}
     { 300., 0.0253446, 7631.7, 10.2824,    31.5377, -1823.69, 4.90344, -5.2177, -0.416868}
