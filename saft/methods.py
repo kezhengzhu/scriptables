@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 import numpy as np 
 import pandas as pd 
-from math import *
 import matplotlib.pyplot as plt 
 
+from dervar import *
 import defconst as cst
 
 def checkerr(cond, message):
@@ -28,7 +28,7 @@ def mie_s(r_s, rep, att=6):
     checkerr(isinstance(r_s, np.ndarray) or isinstance(r_s, float), "Use ndarray or float for mie_s")
     checkerr((isinstance(r_s, np.ndarray) and r_s.ndim == 1) or isinstance(r_s, float), "ndarray in wrong dimensions!")
     c_mie = rep/(rep-att) * pow(rep/att, att/(rep-att))
-    u_s = c_mie * (r_s**(-rep) - r_s**(-att))
+    u_s = c_mie * (pow(r_s,-rep) - pow(r_s,-att))
 
     return u_s
 
@@ -45,6 +45,13 @@ def hsdiam(T_s, rep, att=6, x_inf=0):
 
     dcube_s = 1 - (3 * (1-x_inf) / 2 * xsum)
     dhs_s = pow(dcube_s, 1/3)
+
+
+    # r_s = np.flip(np.linspace(1.,0.,100, endpoint=False))
+    # uu = mie_s(r_s,rep,att)
+    # expu = np.exp(-uu/T_s)
+    # d3 = np.trapz(expu, r_s)
+    # dhs_s = pow(1 - np.trapz(expu, r_s),1/3)
     return dhs_s
 
 def inv_angle(angle):
@@ -82,6 +89,12 @@ def xi_x_eff(xi_x, lam):
     cm = cst.cm
     lam_vec = np.array([1., 1/lam, 1/pow(lam,2), 1/pow(lam,3)])
     c = np.matmul(cm, lam_vec)
+    if isinstance(xi_x, Var):
+        result = 0.
+        for i in range(len(c)):
+            result = result + c[i] * pow(xi_x,i+1)
+        return result
+
     xis = np.array([xi_x, pow(xi_x,2), pow(xi_x,3), pow(xi_x,4)])
 
     result = sum(c * xis)
@@ -91,6 +104,13 @@ def der_xi_x_eff(xi_x, der_xi_x, lam):
     cm = cst.cm
     lam_vec = np.array([1., 1/lam, 1/pow(lam,2), 1/pow(lam,3)])
     c = np.matmul(cm, lam_vec)
+
+    if isinstance(xi_x, Var):
+        result = 0.
+        for i in range(len(c)):
+            result = result + (i+1) * c[i] * pow(xi_x,i) * der_xi_x
+        return result
+        
     xis = np.array([der_xi_x, 2*xi_x*der_xi_x, 3*pow(xi_x,2)*der_xi_x, 4*pow(xi_x,3)*der_xi_x])
 
     result = sum(c * xis)

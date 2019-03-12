@@ -6,6 +6,7 @@ R = 8.3144598 # J K-1 mol-1
 Na = 6.02214086e23 # mol-1
 h = 6.62607004e-34 # m2 kg s-1
 au = 1.660539040e-27 # kg / amu
+mass_e = 9.10938356e-31 # kg
 nmtom = 1e-9 # m / nm
 patobar= 1e-5
 

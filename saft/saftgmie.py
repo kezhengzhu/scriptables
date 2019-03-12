@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 import numpy as np 
 import pandas as pd 
-from math import *
-import matplotlib.pyplot as plt 
-import trace
+from math import pi,tanh
+import matplotlib.pyplot as plt
+
+from dervar import *
 
 import defconst as cst
 import methods as mt 
@@ -95,7 +96,7 @@ class System(object):
         A = a * mole_tol * cst.k * self.temp
         return A
 
-    def getpv(self, volume, temperature=None):
+    def gen_data(self, volume, temperature=None):
         mt.checkerr(isinstance(volume, np.ndarray) or isinstance(volume, float), "Use array or single float value of volume to generate pressure data")
         if isinstance(temperature, float):
             self.temp = temperature
@@ -104,7 +105,7 @@ class System(object):
             A = self.helmholtz()
             den = self.__nden()
 
-            dv = volume *0.001
+            dv = volume *0.0001
             self.volume = volume + dv
             Ap = self.helmholtz()
             self.volume = volume - dv 
@@ -117,7 +118,7 @@ class System(object):
 
         A = np.zeros(np.size(volume))
         den = np.zeros(np.size(volume))
-        for i in range(len(volume)):
+        for i in range(np.size(volume)):
             self.volume = volume[i] # nm
             A[i] = self.helmholtz()
             den[i] = self.__nden()
@@ -128,6 +129,57 @@ class System(object):
 
         return (P, den, A)
 
+    def p_v_isotherm(self, volume, temperature=None):
+        '''
+        Get pressure profile from volume inputs. Volume in m3 per mol
+        '''
+        if isinstance(temperature, float):
+            self.temp = temperature
+
+        mt.checkerr(isinstance(volume,float) or isinstance(volume, np.ndarray), "Use floats or numpy array for volume")
+        volume = self.__moltol() * volume / (cst.Na * pow(cst.nmtom,3))
+        # Case single volume value
+        if isinstance(volume, float):
+            self.volume = Var(volume)
+            A = self.helmholtz()
+            result = -derivative(A,self.volume) / pow(cst.nmtom,3)
+
+            # Reset system back to float
+            self.volume = volume
+            return result
+
+        # Case numpy array
+        old_v = self.volume
+        vlen = np.size(volume)
+        P = np.zeros(vlen)
+        print('='*5, f'Pv Isotherm data from {vlen:5d} points', '='*5)
+        tenp = vlen // 10
+        for i in range(vlen):
+            self.volume = Var(volume[i])
+            A = self.helmholtz()
+            P[i] = -derivative(A,self.volume) / pow(cst.nmtom,3)
+
+            if (i+1) % tenp == 0:
+                print(f'Progress at {(i+1)//tenp * 10:3d}%')
+        # Reset system back to float
+        self.volume = old_v
+        return P
+
+    def p_rho_isotherm(self, nden, temperature=None):
+        '''
+        nden in mol/m3
+        '''
+        if isinstance(temperature, float):
+            self.temp = temperature
+        mt.checkerr(isinstance(nden,float), "Use floats for rho")
+        volume = self.__moltol()/(cst.Na*nden * pow(cst.nmtom,3))
+        self.volume = Var(volume)
+        A = self.helmholtz()
+        result = -derivative(A,self.volume) / pow(cst.nmtom,3)
+
+        # Reset system back to float
+        self.volume = volume
+        return result
 
     def a_ideal(self):
         result = 0.
@@ -240,7 +292,7 @@ class System(object):
         segden = self.__segden()
         dkl = gcomb.hsdiam(self.temp)
         dkl_3 = pow(dkl * cst.nmtom, 3)
-        epsikl = gcomb.epsilon
+        epsikl = gcomb.epsilon * cst.k
 
         x0kl = gcomb.x0kl(self.temp)
         xix = self.__xi_x()
@@ -257,7 +309,7 @@ class System(object):
         segden = self.__segden()
         dkl = gcomb.hsdiam(self.temp)
         dkl_3 = pow(dkl * cst.nmtom, 3)
-        epsikl = gcomb.epsilon
+        epsikl = gcomb.epsilon * cst.k
 
         xix = self.__xi_x()
 
@@ -377,7 +429,7 @@ class System(object):
         '''
         khs = self.__khs()
         corrf = self.__corrf(gcomb)
-        epsikl = gcomb.epsilon
+        epsikl = gcomb.epsilon * cst.k
         ckl = gcomb.premie()
         x0kl = gcomb.x0kl(self.temp)
         rep = gcomb.rep
@@ -435,7 +487,7 @@ class System(object):
     def __a_3kl(self, gcomb):
         xisx = self.__xi_sx()
         alkl = self.__alphakl(gcomb)
-        epsikl = gcomb.epsilon
+        epsikl = gcomb.epsilon * cst.k
 
         preexp = - pow(epsikl,3) * mt.f_m(alkl, 4) * xisx
         expt1 = mt.f_m(alkl, 5) * xisx 
@@ -465,7 +517,7 @@ class System(object):
         segden = self.__segden()
         dkl = gcomp.hsdiam(self.temp)
         d_3 = pow(dkl * cst.nmtom, 3)
-        epsi = gcomp.epsilon
+        epsi = gcomp.epsilon * cst.k
 
         derxix = self.__der_xi_x()
         xix = self.__xi_x()
@@ -486,7 +538,7 @@ class System(object):
         segden = self.__segden()
         dkl = gcomp.hsdiam(self.temp)
         d_3 = pow(dkl * cst.nmtom, 3)
-        epsi = gcomp.epsilon
+        epsi = gcomp.epsilon * cst.k
 
         x0ii = gcomp.x0kl(self.temp)
         xix = self.__xi_x()
@@ -524,8 +576,9 @@ class System(object):
         g1 = self.__g1(gcomp)
         g2 = self.__g2(gcomp)
         b = 1 / (cst.k * self.temp)
+        epsi = gcomp.epsilon * cst.k
 
-        expt = b * gcomp.epsilon * g1 / gdhs + pow(b*gcomp.epsilon,2) * g2 / gdhs
+        expt = b * epsi * g1 / gdhs + pow(b*epsi,2) * g2 / gdhs
         result = gdhs * exp(expt)
         return result
 
@@ -542,7 +595,7 @@ class System(object):
                                      +  premieii * repii * x0ii^repii * (as1kl(repii) + Bkl(repii))/segden ]
         '''
         premie = gcomp.premie()
-        epsi = gcomp.epsilon
+        epsi = gcomp.epsilon * cst.k
         rep = gcomp.rep
         att = gcomp.att
         x0ii = gcomp.x0kl(self.temp)
@@ -564,7 +617,7 @@ class System(object):
         '''
         xisx = self.__xi_sx()
         alii = self.__alphakl(gcomp)
-        theta = exp(gcomp.epsilon / (cst.k * self.temp))
+        theta = exp(gcomp.epsilon /  self.temp)
 
         gammacii = cst.phi[6,0] * (-tanh(cst.phi[6,1] * (cst.phi[6,2]-alii)) + 1) * xisx * theta * exp(cst.phi[6,3]*xisx + cst.phi[6,4] * pow(xisx, 2))
         g2mca = self.__g2mca(gcomp)
@@ -585,7 +638,7 @@ class System(object):
     def __der_a2kl(self, gcomp):
         khs = self.__khs()
         derkhs = self.__der_khs()
-        epsi = gcomp.epsilon
+        epsi = gcomp.epsilon * cst.k
         ckl = gcomp.premie()
         x0kl = gcomp.x0kl(self.temp)
         rep = gcomp.rep
@@ -615,7 +668,7 @@ class System(object):
         ]
         '''
         premie = gcomp.premie()
-        epsi = gcomp.epsilon
+        epsi = gcomp.epsilon * cst.k
         rep = gcomp.rep
         att = gcomp.att
         x0ii = gcomp.x0kl(self.temp)
@@ -703,7 +756,8 @@ class Component(object):
         Takes in component mass (au) and temperature (K) and return thermal de broglie wavelength
         '''
         Lambda_sq = pow(cst.h,2) * 1e3 * cst.Na / (2 * pi * self.mass * cst.k * temp)
-        return sqrt(Lambda_sq)
+        # return sqrt(Lambda_sq)
+        return cst.h / sqrt(2 * pi * cst.mass_e * cst.k * temp)
 
     def get_gtypeii(self):
         sig = 0.
@@ -720,7 +774,7 @@ class Component(object):
                 rep += zki * zli * (g1+g2).rep
                 att += zki * zli * (g1+g2).att
 
-        g = GroupType(rep, att, sig, epi/cst.k, shape_factor=None, id_seg=None)
+        g = GroupType(rep, att, sig, epi, shape_factor=None, id_seg=None)
         return g
 
     def __gshape(self, gtype):
@@ -757,15 +811,15 @@ class GroupType(object):
         self.rep = lambda_r
         self.att = lambda_a
         self.sigma = sigma # units nm
-        self.epsilon = epsilon * cst.k # units K input, divided by cst.k (epsi / k), so multiply k here
+        self.epsilon = epsilon # units K input, divided by cst.k (epsi / k), so multiply k here
         self.sk = shape_factor # dimensionless segments
         self.vk = id_seg # identical segments in a group
 
     def __repr__(self):
-        return '<GroupType({:4.3f} nm, {:4.3f} K, rep={:5.3f}, att={:5.3f})>'.format(self.sigma, self.epsilon/cst.k, self.rep, self.att)
+        return '<GroupType({:4.3f} nm, {:4.3f} K, rep={:5.3f}, att={:5.3f})>'.format(self.sigma, self.epsilon, self.rep, self.att)
 
     def hsdiam(self, si_temp, x_inf=0): # returns in nm
-        return mt.hsdiam(si_temp * cst.k / self.epsilon, self.rep, self.att, x_inf) * self.sigma
+        return mt.hsdiam(si_temp / self.epsilon, self.rep, self.att, x_inf) * self.sigma
 
     def __add__(self, other):
         sig = (self.sigma + other.sigma) / 2
@@ -773,7 +827,7 @@ class GroupType(object):
         rep = 3 + sqrt( (self.rep - 3) * (other.rep - 3) )
         att = 3 + sqrt( (self.att - 3) * (other.att - 3) )
 
-        return GroupType(rep, att, sig, epsi/cst.k, shape_factor=None, id_seg=None)
+        return GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None)
 
     def premie(self):
         return self.rep/(self.rep-self.att) * pow(self.rep/self.att, self.att/(self.rep-self.att))
@@ -858,34 +912,66 @@ def main():
     # print(octane.param_ii("sigma"), octane.param_ii("hsd",273.), octane.param_ii("rep"))
     # print(ljmol.param_ii("sigma"), ljmol.param_ii("hsd",273.), ljmol.param_ii("rep"))
 
-    # s.temp = 300
-    # s.volume = 217.58
-    # print('cgss is given by: ', s._System__cgshapesum())
-    # print('A-IDEAL term: =======')
-    # print('{:18s}'.format('value: '), s.a_ideal())
-    # print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
-    # print('A-MONO term: ========')
-    # print('{:18s}'.format('value: '), s.a_mono())
-    # print('{:18s}'.format('a_hs: '), s._System__a_hs())
-    # print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
-    # print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
-    # print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
-    # print('A-CHAIN term: =======')
-    # print('{:18s}'.format('value: '), s.a_chain())
-    # print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
-    # print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
-    # print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
-    # print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
-    # print('=====================')
-    # print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
-    # print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
-    # print('{:18s}'.format('System size:'), s._System__moltol())
-    # print('=====================')
-    # # v = np.logspace(2,4,1000)
-    # (P, rho, A) = s.getpv(217.58, temperature=300)
-    # print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
-    # print('{:18s}'.format('A per mol:'), A*cst.Na)
-    
+    tm = 300.
+    s.temp = tm
+    vm = 1/7631.7
+    s.volume = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
+    print('cgss is given by: ', s._System__cgshapesum())
+    print('A-IDEAL term: =======')
+    print('{:18s}'.format('value: '), s.a_ideal())
+    print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
+    print('A-MONO term: ========')
+    print('{:18s}'.format('value: '), s.a_mono())
+    print('{:18s}'.format('a_hs: '), s._System__a_hs())
+    print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
+    print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
+    print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
+    print('A-CHAIN term: =======')
+    print('{:18s}'.format('value: '), s.a_chain())
+    print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
+    print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
+    print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
+    print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
+    print('=====================')
+    print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
+    print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
+    print('{:18s}'.format('System size:'), s._System__moltol())
+    print('=====================')
+    # v = np.logspace(2,4,1000)
+    P = s.p_v_isotherm(vm, temperature=tm)
+    print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
+    print('{:18s}'.format('A per mol:'), s.helmholtz()/s._System__moltol()*cst.Na)
+
+    # plspv = []
+    # plsprho = []
+    # temp = np.linspace(250,450,5)
+    # colors = list('rbgcmyk')
+    # count = 0
+
+    # v = np.logspace(-4.1,3,1000)
+    # vlen = np.size(v)
+    # pvt = []
+    # for t in temp:
+    #     P = s.p_v_isotherm(v, temperature=t) * cst.patobar
+    #     T = np.ones(vlen) * t
+    #     pvt.append(np.column_stack([P,v,T]))
+    #     plspv.append(Plot(v,P, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
+    #     plsprho.append(Plot(1/v,P, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
+    #     count+=1
+    # pvtdata = np.concatenate(pvt, axis=0)
+    # pd.DataFrame(pvtdata).to_csv("testfile.csv", index=False)
+
+    # g = Graph(legends=True, subplots=2)
+    # g.add_plots(*plspv, subplot=1)
+    # g.add_plots(*plsprho, subplot=2)
+    # g.set_xlabels("volume (m3/mol)", "density (mol/m3)")
+    # g.set_ylabels(*["pressure (bar)"]*2)
+    # g.ylim(-10,25,1)
+    # g.ylim(-10,25,2)
+    # g.xlim(1e-4,1,1)
+    # g.xlim(1,1e4,2)
+    # g.draw()
+
     # Z = P/(rho * cst.k * 338)
     # pl = Plot(P*cst.patobar,Z, label="temp=338", color='b',axes="linear")
     # g = Graph(legends=True)
@@ -896,25 +982,25 @@ def main():
     # g.xlim(0,50)
     # g.draw()
 
-    pls = []
-    temp = np.linspace(300,600,6)
-    colors = list('rbgcmyk')
-    count = 0
-    for t in temp:
-        v = np.logspace(2.5,5,1000)
-        (P, rho, A) = s.getpv(v, temperature=t)
-        Z = P/(rho * cst.k * t)
-        pls.append(Plot(P*cst.patobar,Z, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
-        count+=1
+    # pls = []
+    # temp = np.linspace(300,600,6)
+    # colors = list('rbgcmyk')
+    # count = 0
+    # for t in temp:
+    #     v = np.logspace(2.5,5,1000)
+    #     (P, rho, A) = s.getpv(v, temperature=t)
+    #     Z = P/(rho * cst.k * t)
+    #     pls.append(Plot(P*cst.patobar,Z, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
+    #     count+=1
 
-    g = Graph(legends=True)
-    g.add_plots(*pls)
-    g.set_xlabels("pressure (bar)")
-    g.set_ylabels("Z")
-    g.set_titles("pressure v density isotherms")
-    g.ylim(0,1)
+    # g = Graph(legends=True)
+    # g.add_plots(*pls)
+    # g.set_xlabels("pressure (bar)")
+    # g.set_ylabels("Z")
+    # g.set_titles("pressure v density isotherms")
+    # g.ylim(0,1)
     # g.xlim(0,50)
-    g.draw()
+    # g.draw()
     '''
     {    T,   p0/10^6,  1/vlo,   1/vvo, dhf/1000.0,     aact,     aid,   amono,        ac}
     { 300., 0.0253446, 7631.7, 10.2824,    31.5377, -1823.69, 4.90344, -5.2177, -0.416868}
