@@ -26,6 +26,11 @@ class Var(object):
             self.grad_val = sum(coeff * var.grad() for (coeff, var) in self.children)
         return self.grad_val
 
+    def reset(self):
+        self.grad_val = None
+        for (coeff, var) in self.children:
+            var.reset()
+
     def __add__(self, other):
         '''
         Var addition: applying chain rule and adding result as children of current Var
@@ -122,6 +127,7 @@ class Var(object):
             return z
         
         return other * pow(self,-1)
+
     def __pow__(self, other):
         return vpow(self, other)
 
@@ -133,6 +139,36 @@ class Var(object):
         self.children.append((-1, z))
 
         return z
+
+    def __lt__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return self.value < other
+        checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
+        return self.value < other.value
+
+    def __le__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return self.value <= other
+        checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
+        return self.value <= other.value
+
+    def __eq__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return self.value == other
+        checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
+        return self.value == other.value
+
+    def __gt__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return self.value > other
+        checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
+        return self.value > other.value
+
+    def __ge__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return self.value >= other
+        checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
+        return self.value >= other.value
 
 def sin(x):
     '''
@@ -270,13 +306,27 @@ def derivative(y, x):
 def main():
     x = Var(0.71)
     y = Var(1.213)
-    z = pow(x,y) + pow(.3,y) - pow(x,7) + (-y)
+    z = x + y * sin(x) * x**2 - x**3
     z.grad_val = 1.
     print(f'z value is {z.value:10.4f}')
     print(f'dz/dx is {x.grad():10.4f}')
-    print(f'dz/dx actual is {0.9*1/(2*x.value)-1/y.value:10.4f}')
+    print(f'dz/dx actual is {1+y.value*math.sin(x.value)*2*x.value+y.value*math.cos(x.value)*x.value**2-3*x.value**2:10.4f}')
     print(f'dz/dy is {y.grad():10.4f}')
-    print(f'dz/dy actual is {x.value/y.value**2:10.4f}')
+    print(f'dz/dy actual is {math.sin(x.value)*x.value**2:10.4f}')
+
+    print('Now...')
+    an = z**2 - x*y + 1
+    print(f'z.grad_val is {z.grad_val:10.4f}')
+    an.grad_val = 1.
+    print(f'dan/dx is {x.grad():10.4f}')
+    print(f'dan/dx actual is {2*z.value*(1+y.value*math.sin(x.value)*2*x.value+y.value*math.cos(x.value)*x.value**2-3*x.value**2)-y.value:10.4f}')
+    print('Using x reset')
+    x.reset()
+    y.reset()
+    an.grad_val = 1.
+    print(f'dan/dx is {x.grad():10.4f}')
+    print(f'dan/dx actual is {2*z.value*(1+y.value*math.sin(x.value)*2*x.value+y.value*math.cos(x.value)*x.value**2-3*x.value**2)-y.value:10.4f}')
+
 
 
 if __name__ == '__main__':

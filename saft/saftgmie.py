@@ -94,40 +94,29 @@ class System(object):
         mole_tol = self.__moltol()
         a = self.a_ideal() + self.a_mono() + self.a_chain() + self.a_assoc()
         A = a * mole_tol * cst.k * self.temp
-        return A
+        return A # this A value is for the System. Not per mol or per molecule!
 
-    def gen_data(self, volume, temperature=None):
-        mt.checkerr(isinstance(volume, np.ndarray) or isinstance(volume, float), "Use array or single float value of volume to generate pressure data")
+    def get_state(self, volume, temperature=None):
+        '''
+        Using SAFT gamma mie and automatic differentiation, return all the properties
+        that could be derived from the EoS: (A, P, S, G, H)
+        '''
+        self.volume = Var(mt.m3mol_to_nm(volume)) # nm3
         if isinstance(temperature, float):
-            self.temp = temperature
-        if isinstance(volume, float):
-            self.volume = volume
-            A = self.helmholtz()
-            den = self.__nden()
+            self.temp = Var(temperature)
+        else:
+            self.temp = Var(self.temp)
 
-            dv = volume *0.0001
-            self.volume = volume + dv
-            Ap = self.helmholtz()
-            self.volume = volume - dv 
-            Am = self.helmholtz()
-            dA = np.array([Am,A,Ap])
-            dV = np.array([volume-dv, volume, volume+dv])
-            P = np.mean(np.gradient(dA,dV*pow(cst.nmtom,3))*-1)
+        A = self.helmholtz() / self.__moltol() # J (per molecule), Var
+        P = -derivative(A, self.volume) / pow(cst.nmtom,3) # Pa, float
+        S = -derivative(A, self.temp) # J/K, float
+        G = A + P * self.volume/self.__moltol()*pow(cst.nmtom,3) # J + Pa*m3/mol / (1/mol), Var
+        H = G + S * self.temp # J + J/K * K, Var
 
-            return (P, den, A / self.__moltol())
-
-        A = np.zeros(np.size(volume))
-        den = np.zeros(np.size(volume))
-        for i in range(np.size(volume)):
-            self.volume = volume[i] # nm
-            A[i] = self.helmholtz()
-            den[i] = self.__nden()
-            if i % 100 == 0:
-                print("Running at {:5d}".format(i))
-
-        P = np.gradient(A,volume*pow(cst.nmtom,3)) * -1
-
-        return (P, den, A)
+        # Reset system back to floats
+        self.volume = self.volume.value
+        self.temp = self.temp.value
+        return (A.value, P, S, G.value, H.value)
 
     def p_v_isotherm(self, volume, temperature=None):
         '''
@@ -838,17 +827,6 @@ class GroupType(object):
         mt.checkwarn(x <= sqrt(2), "x0kl/x0ii above sqrt 2, could result in inaccurate representation of values")
         return x
 
-# class GroupComb(GroupType):
-#     def __init__(self, g1, g2):
-#         sig = (g1.sigma + g2.sigma) / 2
-#         epsi = sqrt(pow(g1.sigma, 3) * pow(g2.sigma, 3)) / pow(sig,3) * sqrt(g1.epsilon * g2.epsilon)
-#         rep = 3 + sqrt( (g1.rep - 3) * (g2.rep - 3) )
-#         att = 3 + sqrt( (g1.att - 3) * (g2.att - 3) )
-#         super().__init__(rep, att, sig, epsi)
-#         self.sk = None
-#         self.vk = None
-
-
 class Group(object):
     def __init__(self, gtype):
         self.gtype = gtype
@@ -938,9 +916,13 @@ def main():
     print('{:18s}'.format('System size:'), s._System__moltol())
     print('=====================')
     # v = np.logspace(2,4,1000)
-    P = s.p_v_isotherm(vm, temperature=tm)
-    print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
-    print('{:18s}'.format('A per mol:'), s.helmholtz()/s._System__moltol()*cst.Na)
+    (A, P, S, G, H) = s.get_state(vm, temperature=tm)
+    print('{:18s}'.format('Pressure (MPa) (gd):'), P*1e-6)
+    print('{:18s}'.format('A per mol:'), A*cst.Na)
+    print('{:18s}'.format('S (J/(K mol)):'), S*cst.Na)
+    print('{:18s}'.format('G (J/mol):'), G*cst.Na)
+    print('{:18s}'.format('H (J/mol):'), H*cst.Na)
+    print('{:18s}'.format('Cp (J/(K mol)):'), Cp)
 
     # plspv = []
     # plsprho = []
