@@ -42,8 +42,9 @@ def main():
     # fix, ax = plt.subplots()
     # ax.plot(x,y,'.')
     # plt.show()
-    
-    nsamples = 200000
+    # df = pd.read_csv('train_VL.csv', sep=",")
+
+    nsamples = 500000
     x1 = np.random.uniform(0.,50.,nsamples)
     #x = np.linspace(0., 50., nsamples)
     y = test_func(x1)
@@ -88,7 +89,7 @@ def main():
 
     x, y = xt.to(device), yt.to(device)
     xv, yv = xvt.to(device), yvt.to(device)
-    n_epochs = 1000
+    n_epochs = 200
 
     for epoch in range(n_epochs):
         ### Training step

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd 
 from math import pi,tanh
 import matplotlib.pyplot as plt
+from scipy.optimize import fsolve, least_squares
 
 from dervar import *
 
@@ -16,8 +17,10 @@ class System(object):
             mt.checkerr(isinstance(kwargs[comp], Component), "Use Component object to specify groups used, with format CompName = Component obj")
         self.comps = kwargs
         self.moles = {}
+        self.molfrac = {}
         for comp in self.comps:
             self.moles[comp] = 0
+            self.molfrac[comp] = 0
         self.temp = 293     # K
         self.volume = 1000     # nm^3
         self.pressure = 1   # bar
@@ -39,6 +42,7 @@ class System(object):
             if (comp not in self.comps) and (kwargs[comp] not in self.comps.values()):
                 self.comps[comp] = kwargs[comp]
                 self.moles[comp] = 0
+                self.molfrac[comp] = 0
 
     def list_comps(self):
         print(list(self.comps.keys()))
@@ -51,6 +55,10 @@ class System(object):
 
         for comp in kwargs:
             self.moles[comp] = self.moles[comp] + kwargs[comp]
+
+        for comp in self.molfrac:
+            self.molfrac[comp] = self.moles[comp]/self.__moltol()
+
 
     def quick_set(self, complist, molelist):
         mt.checkerr(isinstance(complist, list) and isinstance(molelist, list), "Use list of Component obj and int")
@@ -71,6 +79,7 @@ class System(object):
                 if isinstance(complist[i], Component) and (complist[i] not in self.comps.values()):
                     self.comps[num[i-faults]] = complist[i]
                     self.moles[num[i-faults]] = molelist[i]
+                    self.molfrac[num[i-faults]] = 0
                 elif isinstance(complist[i], Component):
                     print("Component already in system, molecules not added")
                     faults = faults + 1
@@ -79,6 +88,8 @@ class System(object):
                     faults = faults + 1
             else:
                 faults = faults + 1
+        for comp in self.molfrac:
+            self.molfrac[comp] = self.moles[comp]/self.__moltol()
 
         return faults
 
@@ -101,37 +112,76 @@ class System(object):
         Using SAFT gamma mie and automatic differentiation, return all the properties
         that could be derived from the EoS: (A, P, S, G, H)
         '''
-        self.volume = Var(mt.m3mol_to_nm(volume)) # nm3
+        Var.set_order(2)
+        self.volume = Var(mt.m3mol_to_nm(volume, molecules=self.__moltol())) # nm3
         if isinstance(temperature, float):
             self.temp = Var(temperature)
         else:
             self.temp = Var(self.temp)
 
-        A = self.helmholtz() / self.__moltol() # J (per molecule), Var
-        P = -derivative(A, self.volume) / pow(cst.nmtom,3) # Pa, float
-        S = -derivative(A, self.temp) # J/K, float
-        G = A + P * self.volume/self.__moltol()*pow(cst.nmtom,3) # J + Pa*m3/mol / (1/mol), Var
-        H = G + S * self.temp # J + J/K * K, Var
+        A = self.helmholtz() # J total for current system, Var
+        molcs = self.__moltol()
+        d1 = derivative(A, self.volume, self.temp, order=1, getvar=False)
 
+        P = -d1[0] / pow(cst.nmtom,3) # Pa, float
+        S = -d1[1] / molcs # J/K per molecule, float
+        G = (A + P * self.volume*pow(cst.nmtom,3)) / molcs # (J + Pa*m3) for each molecule, Var
+        H = G + S * self.temp # J + J/K * K (it is already in per molecule here), Var
+        A = A.value/molcs
         # Reset system back to floats
         self.volume = self.volume.value
         self.temp = self.temp.value
-        return (A.value, P, S, G.value, H.value)
+        return (A, P, S, G.value, H.value)
+
+    def __eqpg(self, x):
+        '''
+        Takes in ndarray to find Pressure1 - Pressure2
+        '''
+        P = []
+        G = []
+        for i in x:
+            self.volume = Var(mt.m3mol_to_nm(i, molecules=self.__moltol()))
+            A = self.helmholtz()
+            Pi = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
+            P.append(Pi)
+            G.append((A.value + Pi * self.volume.value*pow(cst.nmtom,3))*cst.Na)
+
+        print(P,P[0]-P[1], G, G[0]-G[1], x)
+        print(np.array([1-P[0]/P[1], 1-G[0]/G[1]]))
+        return np.array([P[0]-P[1], G[0]-G[1]])
+
+
+    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1e4)):
+        if isinstance(temperature, float) or isinstance(temperature, int):
+            self.temp = temperature
+        x0 = np.array(initial_guess)
+        vle = least_squares(self.__eqpg, x0, bounds=(0,1e5))
+        print(vle)
+        v = vle.x[1]
+        self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+
+        A = self.helmholtz()
+        P = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
+        G = (A.value + P * self.volume.value*pow(cst.nmtom,3)) / self.__moltol()
+        self.volume = mt.m3mol_to_nm(v, molecules=self.__moltol())
+        print(P)
+        return vle.x, P, G
 
     def p_v_isotherm(self, volume, temperature=None):
         '''
         Get pressure profile from volume inputs. Volume in m3 per mol
         '''
-        if isinstance(temperature, float):
+        if isinstance(temperature, float) or isinstance(temperature, int):
             self.temp = temperature
 
         mt.checkerr(isinstance(volume,float) or isinstance(volume, np.ndarray), "Use floats or numpy array for volume")
         volume = self.__moltol() * volume / (cst.Na * pow(cst.nmtom,3))
+        Var.set_order(1)
         # Case single volume value
         if isinstance(volume, float):
             self.volume = Var(volume)
             A = self.helmholtz()
-            result = -derivative(A,self.volume) / pow(cst.nmtom,3)
+            result = -derivative(A,self.volume,order=1) / pow(cst.nmtom,3)
 
             # Reset system back to float
             self.volume = volume
@@ -141,18 +191,19 @@ class System(object):
         old_v = self.volume
         vlen = np.size(volume)
         P = np.zeros(vlen)
+        G = np.zeros(vlen)
         print('='*5, f'Pv Isotherm data from {vlen:5d} points', '='*5)
         tenp = vlen // 10
         for i in range(vlen):
             self.volume = Var(volume[i])
             A = self.helmholtz()
             P[i] = -derivative(A,self.volume) / pow(cst.nmtom,3)
-
+            G[i] = (A.value + P[i] * self.volume.value*pow(cst.nmtom,3))/self.__moltol()
             if (i+1) % tenp == 0:
                 print(f'Progress at {(i+1)//tenp * 10:3d}%')
         # Reset system back to float
         self.volume = old_v
-        return P
+        return P, G
 
     def p_rho_isotherm(self, nden, temperature=None):
         '''
@@ -175,7 +226,7 @@ class System(object):
         mole_tol = sum(self.moles.values())
         for comp in self.comps:
             debrogv = pow(self.comps[comp].thdebroglie(self.temp),3)
-            molfrac = self.moles[comp] / mole_tol
+            molfrac = self.molfrac[comp]
             nden = molfrac * self.__nden()
             result = result + molfrac * log(nden * debrogv)
         return result - 1
@@ -187,7 +238,7 @@ class System(object):
         result = 0.
         mole_tol = sum(self.moles.values())
         for comp in self.comps:
-            molfrac = self.moles[comp] / mole_tol
+            molfrac = self.molfrac[comp]
             c_cont = 0.
             gmieii = self.__gmieii(self.comps[comp].get_gtypeii())
             for g in self.comps[comp].gtypes:
@@ -208,7 +259,7 @@ class System(object):
         result = 0.
         mole_tol = sum(self.moles.values())
         for comp in self.comps:
-            molfrac = self.moles[comp] / mole_tol
+            molfrac = self.molfrac[comp]
             c_cont = 0
             for gtype in self.comps[comp].gtypes:
                 numg_ki = self.comps[comp].gtypes[gtype]
@@ -224,7 +275,7 @@ class System(object):
         result = 0.
         mole_tol = sum(self.moles.values())
         for comp in self.comps:
-            molfrac = self.moles[comp] / mole_tol
+            molfrac = self.molfrac[comp]
             c_cont = 0
             for gtype in self.comps[comp].gtypes:
                 if gtype == thistype:
@@ -606,7 +657,7 @@ class System(object):
         '''
         xisx = self.__xi_sx()
         alii = self.__alphakl(gcomp)
-        theta = exp(gcomp.epsilon /  self.temp)
+        theta = exp(gcomp.epsilon /  self.temp) -1
 
         gammacii = cst.phi[6,0] * (-tanh(cst.phi[6,1] * (cst.phi[6,2]-alii)) + 1) * xisx * theta * exp(cst.phi[6,3]*xisx + cst.phi[6,4] * pow(xisx, 2))
         g2mca = self.__g2mca(gcomp)
@@ -672,7 +723,7 @@ class System(object):
         t2 = epsi * khs * pow(premie,2) * rep * pow(x0ii, 2*rep) * (self.__as1kl(gcomp,2*rep) + self.__bkl(gcomp,2*rep)) / segden
         t3 = epsi * khs * pow(premie,2) * (rep+att) * pow(x0ii, rep+att) * (self.__as1kl(gcomp,rep+att) + self.__bkl(gcomp,rep+att)) / segden
         t4 = epsi * khs * pow(premie,2) * att * pow(x0ii, 2*att) * (self.__as1kl(gcomp,2*att) + self.__bkl(gcomp,2*att)) / segden
-
+        
         result = 1 / (2 * pi * pow(epsi,2) * pow(hsd, 3)) * (t1 - t2 + t3 - t4)
 
         return result
@@ -796,7 +847,7 @@ class Component(object):
         return self.__gshape(gtype) / self.__gshapemol()
 
 class GroupType(object):
-    def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=0.5, id_seg=1):
+    def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=1, id_seg=1):
         self.rep = lambda_r
         self.att = lambda_a
         self.sigma = sigma # units nm
@@ -892,7 +943,8 @@ def main():
 
     tm = 300.
     s.temp = tm
-    vm = 1/7631.7
+    vm = 0.12725355948027697
+    vn = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
     s.volume = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
     print('cgss is given by: ', s._System__cgshapesum())
     print('A-IDEAL term: =======')
@@ -915,14 +967,42 @@ def main():
     print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
     print('{:18s}'.format('System size:'), s._System__moltol())
     print('=====================')
-    # v = np.logspace(2,4,1000)
+    
     (A, P, S, G, H) = s.get_state(vm, temperature=tm)
-    print('{:18s}'.format('Pressure (MPa) (gd):'), P*1e-6)
+    print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
     print('{:18s}'.format('A per mol:'), A*cst.Na)
     print('{:18s}'.format('S (J/(K mol)):'), S*cst.Na)
     print('{:18s}'.format('G (J/mol):'), G*cst.Na)
     print('{:18s}'.format('H (J/mol):'), H*cst.Na)
-    print('{:18s}'.format('Cp (J/(K mol)):'), Cp)
+    print('=====================')
+    print('Testing vapour_pressure')
+    vx, VP, EQG = s.vapour_pressure(tm, initial_guess=(0.0001,0.1))
+    print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
+    vn = mt.m3mol_to_nm(vx[0], 1000)
+    s.volume = vn*(1+1e-10)
+    Ap = s.helmholtz()
+    s.volume = vn*(1-1e-10)
+    Am = s.helmholtz()
+    print((Am-Ap)/(2e-10*vn)/pow(cst.nmtom,3))
+    v = np.logspace(-4,2,1000)
+    P, G = s.p_v_isotherm(v)
+    pl = Plot(v,P*cst.patobar, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
+    pl2 = Plot(v,G*cst.Na, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
+    hline = Plot([1e-4,1e2],[0.253446,0.253446], color='k', axes="semilogx")
+    hline2 = Plot([1e-4,1e2],[-1820.37,-1820.37], color='k', axes="semilogx")
+    vline11 = Plot([0.09725355948027697,0.09725355948027697],[0,5], color='b', axes="semilogx")
+    vline12 = Plot([0.00013103240431358676,0.00013103240431358676],[0,5], color='b', axes="semilogx")
+    vline21 = Plot([0.09725355948027697,0.09725355948027697],[0.5e4,-10e4], color='b', axes="semilogx")
+    vline22 = Plot([0.00013103240431358676,0.00013103240431358676],[0.5e4,-10e4], color='b', axes="semilogx")
+    g = Graph(legends=True, subplots=2)
+    g.add_plots(pl,hline,vline11,vline12, subplot=1)
+    g.add_plots(pl2,hline2,vline21,vline22, subplot=2)
+    g.set_xlabels("volume (m3/mol)", "volume (m3/mol)")
+    g.set_ylabels("pressure (bar)", "Gibbs free energy")
+    g.ylim(0,5,1)
+    g.xlim(1e-4,1e2,1)
+    g.xlim(1e-4,1e2,2)
+    g.draw()
 
     # plspv = []
     # plsprho = []
@@ -988,6 +1068,8 @@ def main():
     { 300., 0.0253446, 7631.7, 10.2824,    31.5377, -1823.69, 4.90344, -5.2177, -0.416868}
     {    ahs1,            a1m1,            a2m1,            a3m1,  gmie1,   gdhs,      g11,       g22}
     { 3.41204, -2.38726*10^-20, -4.41287*10^-42, -4.35973*10^-66, 1.5172, 3.7868, -2.83953, 0.0663955}
+    vl, vv
+    (0.00013103240431358676, 0.09725355948027697)
     '''
 if __name__ == '__main__':
     main()
