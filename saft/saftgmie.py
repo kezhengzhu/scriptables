@@ -146,17 +146,15 @@ class System(object):
             P.append(Pi)
             G.append((A.value + Pi * self.volume.value*pow(cst.nmtom,3))*cst.Na)
 
-        print(P,P[0]-P[1], G, G[0]-G[1], x)
-        print(np.array([1-P[0]/P[1], 1-G[0]/G[1]]))
         return np.array([P[0]-P[1], G[0]-G[1]])
 
 
-    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1e4)):
+    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1), get_volume=False, get_gibbs=False, print_results=True):
         if isinstance(temperature, float) or isinstance(temperature, int):
             self.temp = temperature
         x0 = np.array(initial_guess)
         vle = least_squares(self.__eqpg, x0, bounds=(0,1e5))
-        print(vle)
+        if print_results: print(vle)
         v = vle.x[1]
         self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
 
@@ -164,10 +162,12 @@ class System(object):
         P = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
         G = (A.value + P * self.volume.value*pow(cst.nmtom,3)) / self.__moltol()
         self.volume = mt.m3mol_to_nm(v, molecules=self.__moltol())
-        print(P)
-        return vle.x, P, G
+        result = (P,)
+        if get_volume: result += (vle.x,)
+        if get_gibbs: result += (G,)
+        return result
 
-    def p_v_isotherm(self, volume, temperature=None):
+    def p_v_isotherm(self, volume, temperature=None, gibbs=False):
         '''
         Get pressure profile from volume inputs. Volume in m3 per mol
         '''
@@ -191,19 +191,19 @@ class System(object):
         old_v = self.volume
         vlen = np.size(volume)
         P = np.zeros(vlen)
-        G = np.zeros(vlen)
+        if gibbs: G = np.zeros(vlen)
         print('='*5, f'Pv Isotherm data from {vlen:5d} points', '='*5)
         tenp = vlen // 10
         for i in range(vlen):
             self.volume = Var(volume[i])
             A = self.helmholtz()
             P[i] = -derivative(A,self.volume) / pow(cst.nmtom,3)
-            G[i] = (A.value + P[i] * self.volume.value*pow(cst.nmtom,3))/self.__moltol()
+            if gibbs: G[i] = (A.value + P[i] * self.volume.value*pow(cst.nmtom,3))/self.__moltol()
             if (i+1) % tenp == 0:
                 print(f'Progress at {(i+1)//tenp * 10:3d}%')
         # Reset system back to float
         self.volume = old_v
-        return P, G
+        return (P, G) if gibbs else P
 
     def p_rho_isotherm(self, nden, temperature=None):
         '''
@@ -918,18 +918,16 @@ def main():
 
     c6h = GroupType(19.32993437, 6., 0.450874, 377.0118945, shape_factor=1)
 
+    ch4 = GroupType(16.39077548, 6., 0.375227, 170.7540156)
+    methane = Component(16.04)
+    methane.quick_set([ch4],[1])
 
-    print(lj + ch, (lj+ch).hsdiam(273), (ch+ch).x0kl(173.))
-    meth = Component(15)
-    octane = Component(35)
-    ljmol = Component(24)
+    to = GroupType(11.79626055, 6., 0.368461, 268.2422859)
+    toluene = Component(92.14)
+    toluene.quick_set([to],[3])
 
     hexane = Component(86.1754)
     hexane.quick_set([c6h], [2]) 
-
-    meth.quick_set([ch], [1])
-    octane.quick_set([ch], [8])
-    ljmol.quick_set([lj], [1])
 
     s = System()
     # s.quick_set([meth, ljmol], [100, 100])
@@ -976,32 +974,89 @@ def main():
     print('{:18s}'.format('H (J/mol):'), H*cst.Na)
     print('=====================')
     print('Testing vapour_pressure')
-    vx, VP, EQG = s.vapour_pressure(tm, initial_guess=(0.0001,0.1))
+    VP, vx, EQG = s.vapour_pressure(400, initial_guess=(0.0001,0.1), get_volume=True, get_gibbs=True)
     print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
-    vn = mt.m3mol_to_nm(vx[0], 1000)
-    s.volume = vn*(1+1e-10)
-    Ap = s.helmholtz()
-    s.volume = vn*(1-1e-10)
-    Am = s.helmholtz()
-    print((Am-Ap)/(2e-10*vn)/pow(cst.nmtom,3))
+    print('{:18s}'.format('Volumes (l,v):'), VP*1e-6)
+    # vn = mt.m3mol_to_nm(vx[0], 1000)
+    # s.volume = vn*(1+1e-10)
+    # Ap = s.helmholtz()
+    # s.volume = vn*(1-1e-10)
+    # Am = s.helmholtz()
+    # print((Am-Ap)/(2e-10*vn)/pow(cst.nmtom,3))
+    # v = np.logspace(-4,2,500)
+    # P, G = s.p_v_isotherm(v, temperature=400, gibbs=True)
+    # pl = Plot(v,P*cst.patobar, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
+    # pl2 = Plot(v,G*cst.Na, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
+    # hline = Plot([1e-4,1e2],[VP*cst.patobar, VP*cst.patobar], color='k', axes="semilogx")
+    # hline2 = Plot([1e-4,1e2],[EQG*cst.Na, EQG*cst.Na], color='k', axes="semilogx")
+    # vline11 = Plot([vx[0],vx[0]],[0,15], color='b', axes="semilogx")
+    # vline12 = Plot([vx[1],vx[1]],[0,15], color='b', axes="semilogx")
+    # vline21 = Plot([vx[0],vx[0]],[0.5e4,-10e4], color='b', axes="semilogx")
+    # vline22 = Plot([vx[1],vx[1]],[0.5e4,-10e4], color='b', axes="semilogx")
+    # g = Graph(legends=True, subplots=2)
+    # g.add_plots(pl,hline,vline11,vline12, subplot=1)
+    # g.add_plots(pl2,hline2,vline21,vline22, subplot=2)
+    # g.set_xlabels("volume (m3/mol)", "volume (m3/mol)")
+    # g.set_ylabels("pressure (bar)", "Gibbs free energy")
+    # g.ylim(0,15,1)
+    # g.ylim(-5e4,5e4,2)
+    # g.xlim(1e-4,1e2,1)
+    # g.xlim(1e-4,1e2,2)
+    # g.draw()
+
+    print("="*5,"Generating hexane (19.33/6.0) data for ML (v,T->P)","="*5)
+
+    temp_range = np.linspace(300,400,2)
+    p_vap = np.zeros(np.size(temp_range))
+    vv = np.zeros(np.size(temp_range))
+    vl = np.zeros(np.size(temp_range))
+    gf = np.zeros(np.size(temp_range))
+    tlen = len(temp_range)
+    tenp = tlen//1
+    pl_p = []
+    pl_g = []
+    pl_pr = []
+    pl_gr = []
     v = np.logspace(-4,2,1000)
-    P, G = s.p_v_isotherm(v)
-    pl = Plot(v,P*cst.patobar, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
-    pl2 = Plot(v,G*cst.Na, label="temp = {:5.1f}".format(tm), color='r', axes="semilogx")
-    hline = Plot([1e-4,1e2],[0.253446,0.253446], color='k', axes="semilogx")
-    hline2 = Plot([1e-4,1e2],[-1820.37,-1820.37], color='k', axes="semilogx")
-    vline11 = Plot([0.09725355948027697,0.09725355948027697],[0,5], color='b', axes="semilogx")
-    vline12 = Plot([0.00013103240431358676,0.00013103240431358676],[0,5], color='b', axes="semilogx")
-    vline21 = Plot([0.09725355948027697,0.09725355948027697],[0.5e4,-10e4], color='b', axes="semilogx")
-    vline22 = Plot([0.00013103240431358676,0.00013103240431358676],[0.5e4,-10e4], color='b', axes="semilogx")
-    g = Graph(legends=True, subplots=2)
-    g.add_plots(pl,hline,vline11,vline12, subplot=1)
-    g.add_plots(pl2,hline2,vline21,vline22, subplot=2)
-    g.set_xlabels("volume (m3/mol)", "volume (m3/mol)")
-    g.set_ylabels("pressure (bar)", "Gibbs free energy")
-    g.ylim(0,5,1)
-    g.xlim(1e-4,1e2,1)
-    g.xlim(1e-4,1e2,2)
+    trows = []
+    for i in range(len(temp_range)):
+        t = temp_range[i]
+        Pv, vlv, Geq = s.vapour_pressure(t, get_volume=True, get_gibbs=True, print_results=False)
+        P, G = s.p_v_isotherm(v, temperature=t, gibbs=True)
+        p_vap[i] = Pv*cst.patobar
+        vv[i] = np.max(vlv)
+        vl[i] = np.min(vlv)
+        gf[i] = Geq*cst.Na
+        p_real = np.copy(P)
+        p_real[(v > vl[i]) & (v < vv[i])] = Pv
+        g_real = np.copy(G)
+        g_real[(v > vl[i]) & (v < vv[i])] = Geq
+        pl_p.append(Plot(v,P*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+        pl_g.append(Plot(v,G*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+        pl_pr.append(Plot(v,p_real*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+        pl_gr.append(Plot(v,g_real*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+        if (i+1) % tenp == 0:
+            print(f'Vapour pressure and p-v isotherm calculations at {(i+1):3d} iterations')
+
+        trow = np.column_stack([v,1/v, np.array([temp_range[i]]*len(v)), P*cst.patobar, p_real*cst.patobar])
+
+    df = pd.DataFrame(trow)
+    df.to_csv('oneisoterm.csv', index=False, header=False)
+    g = Graph(subplots=4, titles=["P vs v","G vs v","P vs v","G vs v"])
+    g.add_plots(*pl_p,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=1)
+    g.add_plots(*pl_g,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=2)
+    g.add_plots(*pl_pr,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=3)
+    g.add_plots(*pl_gr,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=4)
+    g.set_xlabels(*["volume (m3/mol)"]*4)
+    g.set_ylabels(*["pressure (bar)","gibbs free energy (J/mol)"]*2)
+    g.ylim(0,20,1)
+    g.ylim(-1e4,1e4,2)
+    g.xlim(1e-4,1e1,1)
+    g.xlim(1e-4,1e1,2)
+    g.ylim(0,20,3)
+    g.ylim(-1e4,1e4,4)
+    g.xlim(1e-4,1e1,3)
+    g.xlim(1e-4,1e1,4)
     g.draw()
 
     # plspv = []
