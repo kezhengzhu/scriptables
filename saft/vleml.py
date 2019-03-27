@@ -20,7 +20,7 @@ class SimpleNet(nn.Module):
         input_dim = input_output[0]
         output_dim = input_output[1]
         self.beta = nn.ModuleList()
-        self.sig = nn.Softplus()
+        self.sig = nn.Tanh()
         for i in range(len(args)):
             if i == 0:
                 self.beta.append(nn.Linear(input_dim, args[i]))
@@ -31,7 +31,7 @@ class SimpleNet(nn.Module):
                 self.beta.append(nn.Linear(args[i],output_dim))
         self.layers = len(self.beta)
 
-
+d
     def forward(self, x):
         for i in range(self.layers):
             f = self.beta[i]
@@ -41,11 +41,11 @@ class SimpleNet(nn.Module):
                 x = self.sig(f(x))
         return x
 
-df = pd.read_csv('PvTdata.csv', header=None)
-df = df[df.iloc[:,4] <= 30]
+df = pd.read_csv('n-hexane-vle.csv')
+df = df[df.iloc[:,4] <= 1000]
 dataset = df.values
 v = dataset[:,0]
-rho = dataset[:,1]
+rho = dataset[:,1]3
 T = dataset[:,2]
 p_eos = dataset[:,3]
 p_real = dataset[:,4]
@@ -56,7 +56,7 @@ z = p_real * 1e5 / (Na * k * rho * T)
 data = np.zeros((dataset.shape[0],dataset.shape[1]+1))
 dataset = np.column_stack((v,T, p_eos, p_real, z))
 
-validation = np.column_stack([np.copy(dataset[0:1000,:]),np.copy(dataset[80000:81000,:]),np.copy(dataset[140000:141000,:])])
+validation = np.vstack([np.copy(dataset[0:1000,:]),np.copy(dataset[80000:81000,:]),np.copy(dataset[140000:141000,:])])
 
 np.random.shuffle(dataset)
 
@@ -67,12 +67,11 @@ p_real = dataset[:,3]
 z = dataset[:,4]
 
 
-X = np.column_stack([np.log(v), T])
-# Y = p_eos.reshape((np.size(p_eos),1))
-Y = p_real.reshape((np.size(p_real),1))
-
-XV = np.column_stack([np.log(validation[:,0]), validation[:,1]])
-YV = validation[:,3:4]
+X = np.column_stack([np.log(v), T, np.log(v)**2, np.log(v)**3])
+Y = p_eos.reshape((np.size(p_eos),1))
+# Y = np.column_stack([np.log(p_real)])
+XV = np.column_stack([np.log(validation[:,0]), validation[:,1],np.log(validation[:,0])**2,np.log(validation[:,0])**3])
+YV = validation[:,2:3]
 
 print(X.shape, Y.shape, XV.shape, YV.shape)
 
@@ -88,13 +87,13 @@ print(scalery, scalery.mean_, scalery.scale_)
 
 
 X_t = torch.from_numpy(scaledX).float()
-Y_t = torch.from_numpy(Y).float()
+Y_t = torch.from_numpy(scaledY).float()
 
 XV_t = torch.from_numpy(scaledXV).float()
-YV_t = torch.from_numpy(YV).float()
+YV_t = torch.from_numpy(scaledYV).float()
 
-model = SimpleNet((2,1), *[200],20)
-optimizer = optim.SGD(model.parameters(), lr=0.001)
+model = SimpleNet((4,1), *[100],20)
+optimizer = optim.SGD(model.parameters(), lr=0.01)
 criterion = nn.MSELoss()
 
 n_epochs = 1000
@@ -112,18 +111,20 @@ for epoch in range(n_epochs):
     optimizer.step()
 
 ### Eval
+# model = torch.load("p_from_vt_softplus_scaledy.pth")
 model.eval()
 with torch.no_grad():
     Y_ = model(XV_t)
     loss = criterion(Y_, YV_t)
 
+# torch.save(model, "p_from_vt_softplus_scaledy.pth")
 
 fig, ax = plt.subplots()
-ax.plot(scalerx.inverse_transform(XV_t.numpy()[:,0]), scalery.inverse_transform(Y_.numpy()), '.', label='pred')
-ax.plot(scalerx.inverse_transform(XV_t.numpy()[:,0]), scalery.inverse_transform(YV_t.numpy()), '.', label='data')
+ax.plot(scalerx.inverse_transform(XV_t.numpy())[:,0], scalery.inverse_transform(Y_.numpy()), '.', label='pred')
+ax.plot(scalerx.inverse_transform(XV_t.numpy())[:,0], scalery.inverse_transform(YV_t.numpy()), '.', label='data')
+# ax.plot(XV[:,0], Y_.numpy(), '.', label='pred')
+# ax.plot(XV[:,0], YV_t.numpy(), '.', label='data')
 
 ax.set_title(f"MSE: {loss.item():0.5f}")
 ax.legend()
 plt.show()
-
-torch.save(model, "p_from_vt.pth")

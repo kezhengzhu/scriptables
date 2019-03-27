@@ -12,7 +12,7 @@ import methods as mt
 from plotxvg import *
 
 class System(object):
-    def __init__(self, **kwargs):
+    def __init__(self, temperature=293, volume=1000, **kwargs):
         for comp in kwargs:
             mt.checkerr(isinstance(kwargs[comp], Component), "Use Component object to specify groups used, with format CompName = Component obj")
         self.comps = kwargs
@@ -21,9 +21,9 @@ class System(object):
         for comp in self.comps:
             self.moles[comp] = 0
             self.molfrac[comp] = 0
-        self.temp = 293     # K
-        self.volume = 1000     # nm^3
-        self.pressure = 1   # bar
+        self.temp = temperature     # K
+        self.volume = volume     # nm^3
+        self.pressure = 1   # bar (temporarily useless)
         self.sdt = 1
 
     def __repr__(self):
@@ -60,9 +60,16 @@ class System(object):
             self.molfrac[comp] = self.moles[comp]/self.__moltol()
 
 
-    def quick_set(self, complist, molelist):
-        mt.checkerr(isinstance(complist, list) and isinstance(molelist, list), "Use list of Component obj and int")
-        mt.checkerr(len(complist) == len(molelist), "Length of comps and molecules list does not match")
+    def quick_set(self, *args):
+        complist = []
+        molelist = []
+        for arg in args:
+            mt.checkerr(isinstance(arg, tuple) or isinstance(arg, list), "Use iterable tuple or list for quick_set")
+            mt.checkerr(isinstance(arg[0], Component), "First element of iterable must be of Component type")
+            mt.checkerr(isinstance(arg[1], int), "Second element of iterable must be of int type")
+            complist.append(arg[0])
+            molelist.append(arg[1])
+
         num = []
         count = 1
         for i in range(len(complist)):
@@ -74,24 +81,18 @@ class System(object):
 
         faults = 0
         for i in range(len(complist)):
-            mt.checkwarn(isinstance(molelist[i], int), "Molecules no. for {} not int type, not added".format(repr(complist[i])))
-            if isinstance(molelist[i], int):
-                if isinstance(complist[i], Component) and (complist[i] not in self.comps.values()):
-                    self.comps[num[i-faults]] = complist[i]
-                    self.moles[num[i-faults]] = molelist[i]
-                    self.molfrac[num[i-faults]] = 0
-                elif isinstance(complist[i], Component):
-                    print("Component already in system, molecules not added")
-                    faults = faults + 1
-                else:
-                    print("Component error, molecules not added")
-                    faults = faults + 1
+            if (complist[i] not in self.comps.values()):
+                self.comps[num[i-faults]] = complist[i]
+                self.moles[num[i-faults]] = molelist[i]
+                self.molfrac[num[i-faults]] = 0
             else:
+                print("Component already in system, molecules not added")
                 faults = faults + 1
+
         for comp in self.molfrac:
             self.molfrac[comp] = self.moles[comp]/self.__moltol()
 
-        return faults
+        return self
 
     def getgtypes(self):
         gtypes = []
@@ -145,15 +146,14 @@ class System(object):
             Pi = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
             P.append(Pi)
             G.append((A.value + Pi * self.volume.value*pow(cst.nmtom,3))*cst.Na)
+        return np.array([(P[0]-P[1]), (G[0]-G[1])])
 
-        return np.array([P[0]-P[1], G[0]-G[1]])
-
-
-    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1), get_volume=False, get_gibbs=False, print_results=True):
+    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1), get_volume=False, get_gibbs=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': (0,1e5)}):
         if isinstance(temperature, float) or isinstance(temperature, int):
             self.temp = temperature
         x0 = np.array(initial_guess)
-        vle = least_squares(self.__eqpg, x0, bounds=(0,1e5))
+        if not isinstance(solver_kwargs, dict): solver_kwargs = {}
+        vle = solver(self.__eqpg, x0,**solver_kwargs)
         if print_results: print(vle)
         v = vle.x[1]
         self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
@@ -220,6 +220,41 @@ class System(object):
         # Reset system back to float
         self.volume = volume
         return result
+
+    def __getp(self, x, targetP):
+        '''
+        Takes in single value to get P
+        '''
+        x = x[0]
+        self.volume = Var(mt.m3mol_to_nm(x, molecules=self.__moltol()))
+        A = self.helmholtz()
+        P = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
+
+        return P - targetP
+
+    def single_phase_v(self, P, T=None, print_results=True, get_density=False):
+        if isinstance(T, float):
+            self.temp = T
+
+        if isinstance(P, float) or isinstance(P, int):
+            Pv, vle = self.vapour_pressure(temperature=T, get_volume=True)
+            v_init = vle[0] if P > Pv else vle[1]
+            getv = least_squares(self.__getp, v_init, kwargs={"targetP": P})
+
+            if print_results: print(getv)
+
+            return getv.x[0] if get_density == False else (getv.x[0], 1/getv.x[0])
+
+        mt.checkerr(isinstance(P, np.ndarray), "Use float/int or ndarray for pressure inputs")
+        varr = np.zeros(np.size(P))
+        for i in range(len(P)):
+            Pv, vle = self.vapour_pressure(temperature=T, get_volume=True)
+            v_init = vle[0] if P[i] > Pv else vle[1]
+            getv = least_squares(self.__getp, v_init, kwargs={"targetP": P[i]})
+
+            varr[i] = getv.x[0]
+
+        return varr if get_density == False else (varr, 1./varr)
 
     def a_ideal(self):
         result = 0.
@@ -765,13 +800,19 @@ class Component(object):
 
         self.groups[name1].connect(self.groups[name2], angle)
 
-    def quick_set(self, gtypel, numl):
-        mt.checkerr(isinstance(gtypel, list) and isinstance(numl, list), "Use list of GroupType obj and int")
-        mt.checkerr(len(gtypel) == len(numl), "Length of groups and no. of groups list does not match")
+    def quick_set(self, *args):
+        gtypel = []
+        numl = []
+        for arg in args:
+            mt.checkerr(isinstance(arg, tuple) or isinstance(arg, list), "Use iterable tuple or list for components and no. of molecules")
+            mt.checkerr(isinstance(arg[0], GroupType), "First element of iterable must be of GroupType")
+            mt.checkerr(isinstance(arg[1], int), "Second element of iterable must be of int")
+            gtypel.append(arg[0])
+            numl.append(arg[1])
+
         names = []
         count = 1
         groupsAdding = sum(numl)
-        mt.checkerr(isinstance(groupsAdding, int), "Use int values only in no. of groups list")
 
         for i in range(groupsAdding):
             name = 'G{:03d}'.format(count)
@@ -789,7 +830,8 @@ class Component(object):
                 print("Not GroupType obj error, groups not added")
                 faults = faults + numl[i]
         print('{:3d} groups were to be added, {:3d} groups were added'.format(groupsAdding, groupsAdding-faults))
-        return faults
+
+        return self
 
     def thdebroglie(self, temp):
         '''
@@ -920,18 +962,18 @@ def main():
 
     ch4 = GroupType(16.39077548, 6., 0.375227, 170.7540156)
     methane = Component(16.04)
-    methane.quick_set([ch4],[1])
+    methane.quick_set((ch4,1))
 
     to = GroupType(11.79626055, 6., 0.368461, 268.2422859)
     toluene = Component(92.14)
-    toluene.quick_set([to],[3])
+    toluene.quick_set((to,3))
 
     hexane = Component(86.1754)
-    hexane.quick_set([c6h], [2]) 
+    hexane.quick_set((c6h,2)) 
 
     s = System()
     # s.quick_set([meth, ljmol], [100, 100])
-    s.quick_set([hexane], [1000]) 
+    s.quick_set((hexane,1000)) 
     # print(s.comps, s.moles)
     # print(lj.hsdiam(273), ch.hsdiam(273))
 
@@ -976,7 +1018,8 @@ def main():
     print('Testing vapour_pressure')
     VP, vx, EQG = s.vapour_pressure(400, initial_guess=(0.0001,0.1), get_volume=True, get_gibbs=True)
     print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
-    print('{:18s}'.format('Volumes (l,v):'), VP*1e-6)
+    getv = s.single_phase_v(20e5, T=400)
+    print('{:18s}'.format('v at 20bar 400K:'), getv)
     # vn = mt.m3mol_to_nm(vx[0], 1000)
     # s.volume = vn*(1+1e-10)
     # Ap = s.helmholtz()
@@ -1006,13 +1049,13 @@ def main():
 
     print("="*5,"Generating hexane (19.33/6.0) data for ML (v,T->P)","="*5)
 
-    temp_range = np.linspace(300,400,2)
+    temp_range = np.linspace(300,450,200)
     p_vap = np.zeros(np.size(temp_range))
     vv = np.zeros(np.size(temp_range))
     vl = np.zeros(np.size(temp_range))
     gf = np.zeros(np.size(temp_range))
     tlen = len(temp_range)
-    tenp = tlen//1
+    tenp = tlen//10
     pl_p = []
     pl_g = []
     pl_pr = []
@@ -1024,7 +1067,7 @@ def main():
         Pv, vlv, Geq = s.vapour_pressure(t, get_volume=True, get_gibbs=True, print_results=False)
         P, G = s.p_v_isotherm(v, temperature=t, gibbs=True)
         p_vap[i] = Pv*cst.patobar
-        vv[i] = np.max(vlv)
+        vv[i] = np.max(vlv)(i)
         vl[i] = np.min(vlv)
         gf[i] = Geq*cst.Na
         p_real = np.copy(P)
@@ -1035,13 +1078,20 @@ def main():
         pl_g.append(Plot(v,G*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
         pl_pr.append(Plot(v,p_real*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
         pl_gr.append(Plot(v,g_real*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+        l_phase = np.where(v <= vl[i], 1, 0)
+        v_phase = np.where(v >= vv[i], 1, 0)
+        vl_2phase = np.where((v > vl[i]) & (v < vv[i]), 1, 0)
+        l_frac = np.where((v > vl[i]) & (v < vv[i]), (vv[i] - v)/(vv[i] - vl[i]), v <= vl[i])
+        v_frac = np.where((v > vl[i]) & (v < vv[i]), (v - vl[i])/(vv[i] - vl[i]), v >= vv[i])
+
         if (i+1) % tenp == 0:
             print(f'Vapour pressure and p-v isotherm calculations at {(i+1):3d} iterations')
 
-        trow = np.column_stack([v,1/v, np.array([temp_range[i]]*len(v)), P*cst.patobar, p_real*cst.patobar])
+        trows.append(np.column_stack([v,1/v, np.array([temp_range[i]]*len(v)), P*cst.patobar, p_real*cst.patobar, G*cst.Na, g_real*cst.Na, l_phase, v_phase, vl_2phase, l_frac, v_frac]))
 
-    df = pd.DataFrame(trow)
-    df.to_csv('oneisoterm.csv', index=False, header=False)
+
+    df = pd.DataFrame(np.vstack(trows))
+    df.to_csv('n-hexane-vle.csv', index=False)
     g = Graph(subplots=4, titles=["P vs v","G vs v","P vs v","G vs v"])
     g.add_plots(*pl_p,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=1)
     g.add_plots(*pl_g,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=2)
@@ -1059,65 +1109,7 @@ def main():
     g.xlim(1e-4,1e1,4)
     g.draw()
 
-    # plspv = []
-    # plsprho = []
-    # temp = np.linspace(250,450,5)
     # colors = list('rbgcmyk')
-    # count = 0
-
-    # v = np.logspace(-4.1,3,1000)
-    # vlen = np.size(v)
-    # pvt = []
-    # for t in temp:
-    #     P = s.p_v_isotherm(v, temperature=t) * cst.patobar
-    #     T = np.ones(vlen) * t
-    #     pvt.append(np.column_stack([P,v,T]))
-    #     plspv.append(Plot(v,P, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
-    #     plsprho.append(Plot(1/v,P, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
-    #     count+=1
-    # pvtdata = np.concatenate(pvt, axis=0)
-    # pd.DataFrame(pvtdata).to_csv("testfile.csv", index=False)
-
-    # g = Graph(legends=True, subplots=2)
-    # g.add_plots(*plspv, subplot=1)
-    # g.add_plots(*plsprho, subplot=2)
-    # g.set_xlabels("volume (m3/mol)", "density (mol/m3)")
-    # g.set_ylabels(*["pressure (bar)"]*2)
-    # g.ylim(-10,25,1)
-    # g.ylim(-10,25,2)
-    # g.xlim(1e-4,1,1)
-    # g.xlim(1,1e4,2)
-    # g.draw()
-
-    # Z = P/(rho * cst.k * 338)
-    # pl = Plot(P*cst.patobar,Z, label="temp=338", color='b',axes="linear")
-    # g = Graph(legends=True)
-    # g.add_plots(pl)
-    # g.set_xlabels("pressure(bar)")
-    # g.set_ylabels("Z(P/rho*k*T))")
-    # g.ylim(0,1.5)
-    # g.xlim(0,50)
-    # g.draw()
-
-    # pls = []
-    # temp = np.linspace(300,600,6)
-    # colors = list('rbgcmyk')
-    # count = 0
-    # for t in temp:
-    #     v = np.logspace(2.5,5,1000)
-    #     (P, rho, A) = s.getpv(v, temperature=t)
-    #     Z = P/(rho * cst.k * t)
-    #     pls.append(Plot(P*cst.patobar,Z, label="temp = {:5.1f}".format(t), color=colors[count], axes="semilogx"))
-    #     count+=1
-
-    # g = Graph(legends=True)
-    # g.add_plots(*pls)
-    # g.set_xlabels("pressure (bar)")
-    # g.set_ylabels("Z")
-    # g.set_titles("pressure v density isotherms")
-    # g.ylim(0,1)
-    # g.xlim(0,50)
-    # g.draw()
     '''
     {    T,   p0/10^6,  1/vlo,   1/vvo, dhf/1000.0,     aact,     aid,   amono,        ac}
     { 300., 0.0253446, 7631.7, 10.2824,    31.5377, -1823.69, 4.90344, -5.2177, -0.416868}
