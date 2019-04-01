@@ -27,6 +27,10 @@ class Var(object):
     def __repr__(self):
         return f'{self.value:11.3e}' + (f' with grad{self.grad_val:11.3e}' if self.grad_val is not None else '')
 
+    def set_subject(self):
+        self.isreset = False
+        self.grad_val = 1.
+
     grad_count = 0
     count_grad = False
     def grad(self, getvar=False, order=None, depth=1):
@@ -155,12 +159,12 @@ class Var(object):
         '''
         checkerr(isinstance(other, Var) or isinstance(other,int) or isinstance(other, float), "Var divide has to be applied onto other Vars or floats")
 
-        if isinstance(other,int) or isinstance(other, float):
-            z = Var(other / self.value)
-            selfv = self if Var.order > 1 else self.value
-            nxtorder = max(Var.order-1, 1)
-            self.children.append((-other * vpow(selfv, -2, order=nxtorder), z))
-            return z
+        # if isinstance(other,int) or isinstance(other, float):
+        #     z = Var(other / self.value)
+        #     selfv = self if Var.order > 1 else self.value
+        #     nxtorder = max(Var.order-1, 1)
+        #     self.children.append((-other * vpow(selfv, -2, order=nxtorder), z))
+        #     return z
         
         return other * pow(self,-1)
 
@@ -400,7 +404,7 @@ def derivative(y, *args, order=1, getvar=False):
         for fx in range(len(subj)):
             for x in args:
                 x.reset()
-            subj[fx].grad_val = 1
+            subj[fx].set_subject()
             nxt = [x.grad(getvar=thisvar, order=order-i) for x in args[reduc[fx]:len(args)]]
             nxtsubj += nxt
             nxtreduc += list(range(reduc[fx],len(args)))
@@ -453,137 +457,186 @@ def main():
     Var.set_order(3)
     x = Var(0.71)
     y = Var(2)
-    y2 = y**2
-    x2 = 2*x
-    sx2 = sin(x2)
-    z = y2 * sx2
-    print(derivative(z,x,order=1))
-    dz = testfn(x,y,z,dorder=3)
-    x,y = (0.71, 2)
-    dx1,dy1 = (2*y**2*cos(2*x), 2*y*sin(2*x))
-    dx2,dxy,dy2 = (-4*y**2*sin(2*x), 4*y*cos(2*x), 2*sin(2*x))
-    dx3,dx2y,dxy2,dy3 = (-8*y**2*cos(2*x), -8*y*sin(2*x), 4*cos(2*x), 0.)
-    dx4,dx3y,dx2y2,dxy3,dy4 = (16*y**2*sin(2*x), -16*y*cos(2*x), -8*sin(2*x), 0., 0.) 
-    L = [dx1,[dx2,[dx3,[dx4,dx3y],dx2y,[dx3y,dx2y2]],dxy,[dx2y,[dx3y,dx2y2],dxy2,[dx2y2,dxy3]]],dy1,[dxy,[dx2y,[dx3y,dx2y2],dxy2,[dx2y2,dxy3]],dy2,[dxy2,[dx2y2,dxy3],dy3,[dxy3,dy4]]]]
-    L3 = [dx1,[dx2,[dx3,dx2y],dxy,[dx2y,dxy2]],dy1,[dxy,[dx2y,dxy2,],dy2,[dxy2,dy3]]]
-    plist(dz,L3)
-    dz1 = {}
-    dz2 = {}
-    dz3 = {}
-    for i in [1, 2, 3]:
-        Var.set_order(i)
-        print(f'Setting Var order to {i:d}...', '='*8)
-        print("Test case 1: z = x^y + y^2 sin(x^3)")
-        x = Var(0.71)
-        y = Var(1.213)
-        z1 = x**y + y**2 * sin(x**3)
-        dz1[i] = testfn(x,y,z1,dorder=i)
-        print("Test case 2: z = y^5 * exp(x^0.5) - 5 * cos x * sin x")
-        x = Var(0.71)
-        y = Var(1.213)
-        z2 = y**5 * exp(sqrt(x)) - 5*cos(x)*sin(x)
-        dz2[i] = testfn(x,y,z2,dorder=i)
-        print("Test case 3: z = x^3 * y^2 + ln(y+x+x^2) + log10(x*y*sin x)")
-        x = Var(0.71)
-        y = Var(1.213) # re-defining new vars to reduce branches
-        z3 = x**3 * y**2 + ln(y+x+x**2) + log10(x*y*sin(x))
-        dz3[i] = testfn(x,y,z3,dorder=i)
-
-    for i in [1,2,3]:
-        print(dz1[i])
-        print(dz2[i])
-        print(dz3[i])
+    z = 1/x
+    print(derivative(z,x,order=3))
     x = 0.71
-    y = 1.213
-    # change for simplicity
-    print('Displaying results for 3 test cases against actual answer...')
-    print('='*32)
-    print("Test case 1: z = x^y + y^2 sin(x^3)")
-    print('='*32)
-    st = ['First', 'Second', 'Third']
-    for i in [1,2,3]:
-        print(f'First derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{y*x**(y-1)+y**2*cos(x**3)*3*x**2:10.3f}{ln(x)*x**y + 2*y*sin(x**3):10.3f}')
-        id2 = 1 if i == 1 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][0]:10.3f}{dz1[i][id2]:10.3f}')
-    print()
-    for i in [2,3]:
-        print(f'Second derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{y * (y-1) * x**(y-2) + 6 * x * y**2 *cos(x**3) - 9 * x**4 * y**2 * sin(x**3):10.3f}{ln(x)*ln(x)*x**y+2*sin(x**3):10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][1][0]:10.3f}{dz1[i][3][id2]:10.3f}')
-        print(f'd/dxdy derivatives: via order {i:d}')
-        dxdy = y * ln(x) * x**(y-1) + 6 * x**2 * y * cos(x**3) + x**(y-1)
-        print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][1][id2]:10.3f}{dz1[i][3][0]:10.3f}')
-    print()
-    print(f'Third derivatives: via order 3')
-    x3 = x**(-3 + y)*(-2 + y)*(-1 + y)*y + 6*y**2*cos(x**3) - 27*x**6*y**2*cos(x**3) - 54*x**3*y**2*sin(x**3)
-    x2y = x**(-2 + y)*(-1 + y) + x**(-2 + y)*y + 12*x*y*cos(x**3) + x**(-2 + y)*(-1 + y)*y*log(x) - 18*x**4*y*sin(x**3)
-    xy2 = 6*x**2*cos(x**3) + 2*x**(-1 + y)*ln(x) + x**(-1 + y)*y*ln(x)**2
-    y3 = x**y*ln(x)**3
-    print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
-    print('{:20s}'.format('Third order result:'), f'{dz1[3][1][1][0]:10.3f}{dz1[3][1][1][1]:10.3f}{dz1[3][1][3][0]:10.3f}{dz1[3][1][3][1]:10.3f}{dz1[3][3][1][0]:10.3f}{dz1[3][3][1][1]:10.3f}{dz1[3][3][3][0]:10.3f}{dz1[3][3][3][1]:10.3f}')
+    print((-1/x**2, 2/x**3, -6/x**4))
 
-    print('='*32)
-    print("Test case 2: z = y^5 * exp(x^0.5) - 5 * cos x * sin x")
-    print('='*32)
-    for i in [1,2,3]:
-        print(f'First derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{0.5*y**5*x**(-0.5)*exp(x**0.5)-5*(cos(x)**2)+5*(sin(x)**2):10.3f}{5 * y**4 * exp(x**0.5):10.3f}')
-        id2 = 1 if i == 1 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][0]:10.3f}{dz2[i][id2]:10.3f}')
-    print()
-    for i in [2,3]:
-        print(f'Second derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{(-0.25*exp(x**0.5)*y**5)/x**1.5 + (0.25*exp(x**0.5)*y**5)/x**1. + 20*cos(x)*sin(x):10.3f}{20 * y**3 * exp(x**0.5):10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][1][0]:10.3f}{dz2[i][3][id2]:10.3f}')
-        print(f'd/dxdy derivatives: via order {i:d}')
-        dxdy = (2.5*exp(x**0.5)*y**4)/x**0.5
-        print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][1][id2]:10.3f}{dz2[i][3][0]:10.3f}')
-    print()
-    print(f'Third derivatives: via order 3')
-    x3 = x**(-3 + y)*(-2 + y)*(-1 + y)*y + 6*y**2*cos(x**3) - 27*x**6*y**2*cos(x**3) - 54*x**3*y**2*sin(x**3)
-    x2y = x**(-2 + y)*(-1 + y) + x**(-2 + y)*y + 12*x*y*cos(x**3) + x**(-2 + y)*(-1 + y)*y*log(x) - 18*x**4*y*sin(x**3)
-    xy2 = 6*x**2*cos(x**3) + 2*x**(-1 + y)*ln(x) + x**(-1 + y)*y*ln(x)**2
-    y3 = x**y*ln(x)**3
-    print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
-    print('{:20s}'.format('Third order result:'), f'{dz1[3][1][1][0]:10.3f}{dz1[3][1][1][1]:10.3f}{dz1[3][1][3][0]:10.3f}{dz1[3][1][3][1]:10.3f}{dz1[3][3][1][0]:10.3f}{dz1[3][3][1][1]:10.3f}{dz1[3][3][3][0]:10.3f}{dz1[3][3][3][1]:10.3f}')
+    x=Var(0.71)
+    z2 = x**3.1
+    print(derivative(z2, x, order=3))
+    x = 0.71
+    print(3.1*x**2.1, 3.1*2.1*x**1.1, 3.1*2.1*1.1*x**0.1)
 
-    print('='*32)
-    print("Test case 3: z = x^3 * y^2 + ln(y+x+x^2) + log10(x*y*sin x)")
-    print('='*32)
+    x=Var(0.71)
+    z2 = sin(x)
+    z2.set_subject()
+    dx = x.grad(getvar=True, order=3)
+    x.reset()
+    print(z2.grad_val)
+    dx.set_subject()
+    dx2 = x.grad(getvar=True, order=2)
+    x.reset()
+    dx2.set_subject()
+    dx3 = x.grad(getvar=False, order=1)
+    print(dx.value, dx2.value, dx3)
 
-    for i in [1,2,3]:
-        print(f'First derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{4.33918:10.3f}{1.63834:10.3f}')
-        id2 = 1 if i == 1 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][0]:10.3f}{dz3[i][id2]:10.3f}')
-    print()
-    for i in [2,3]:
-        print(f'Second derivatives: via order {i:d}')
-        print('{:20s}'.format('Actual values:'), f'{4.21424:10.3f}{0.250903:10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][1][0]:10.3f}{dz3[i][3][id2]:10.3f}')
-        print(f'd/dxdy derivatives: via order {i:d}')
-        dxdy =3.25803
-        print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
-        id2 = 1 if i == 2 else 2
-        print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][1][id2]:10.3f}{dz3[i][3][0]:10.3f}')
-    print()
-    print(f'Third derivatives: via order 3')
-    x3 = 13.1511
-    x2y = 10.8145
-    xy2 = 3.36312
-    y3 = 0.626551
-    print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
-    print('{:20s}'.format('Third order result:'), f'{dz3[3][1][1][0]:10.3f}{dz3[3][1][1][1]:10.3f}{dz3[3][1][3][0]:10.3f}{dz3[3][1][3][1]:10.3f}{dz3[3][3][1][0]:10.3f}{dz3[3][3][1][1]:10.3f}{dz3[3][3][3][0]:10.3f}{dz3[3][3][3][1]:10.3f}')
+    x = Var(0.71)
+    z2 = sin(x)
+    print(x.children)
+    print(derivative(z2, x, order=3))
+    x = 0.71
+    print(cos(x), -sin(x), -cos(x))
+    # zs = np.zeros(100)
+    # dz = np.zeros(100)
+    # d2z = np.zeros(100)
+    # xs = np.linspace(0.1,1,100)
+    # for i in range(len(xs)):
+    #     x = Var(xs[i])
+    #     z = y * exp(-x * sin(x*0.31)) + pow(x,1.3223)*exp(-y*cos(x)) - x**0.34/y**2.1 + x**0.92/y**1.42
+    #     dz[i], d2z[i], _ = derivative(z,x, order=3)
+    #     zs[i] = z.value
 
-    print(Var.grad_count, Var.reset_count)
+
+    # f = lambda x, y : y * np.exp(-x * np.sin(x*0.31)) + pow(x,1.3223)*np.exp(-y*np.cos(x)) - x**0.34/y**2.1 + x**0.92/y**1.42
+    
+    # df = lambda x, y : (f(x*(1+1e-5), y) - f(x*(1-1e-5), y)) / (2e-5*x)
+    # d2f = lambda x, y: (df(x*(1+1e-5 ),y) - df(x*(1-1e-5),y)) / (2e-5*df(x,y))
+
+    # fig, ax = plt.subplots()
+    # xp = np.linspace(0.1,1,100)
+    # zp = f(xp,2)
+    # dzp = df(xp,2)
+    # d2zp = d2f(xp,2)
+    # ax.plot(xp, dzp, 'r.')
+    # ax.plot(xp, d2z, 'b-')
+    # plt.show()
+    # dz = testfn(x,y,z,dorder=3)
+    # x,y = (0.71, 2)
+    # dx1,dy1 = (2*y**2*cos(2*x), 2*y*sin(2*x))
+    # dx2,dxy,dy2 = (-4*y**2*sin(2*x), 4*y*cos(2*x), 2*sin(2*x))
+    # dx3,dx2y,dxy2,dy3 = (-8*y**2*cos(2*x), -8*y*sin(2*x), 4*cos(2*x), 0.)
+    # dx4,dx3y,dx2y2,dxy3,dy4 = (16*y**2*sin(2*x), -16*y*cos(2*x), -8*sin(2*x), 0., 0.) 
+    # L = [dx1,[dx2,[dx3,[dx4,dx3y],dx2y,[dx3y,dx2y2]],dxy,[dx2y,[dx3y,dx2y2],dxy2,[dx2y2,dxy3]]],dy1,[dxy,[dx2y,[dx3y,dx2y2],dxy2,[dx2y2,dxy3]],dy2,[dxy2,[dx2y2,dxy3],dy3,[dxy3,dy4]]]]
+    # L3 = [dx1,[dx2,[dx3,dx2y],dxy,[dx2y,dxy2]],dy1,[dxy,[dx2y,dxy2,],dy2,[dxy2,dy3]]]
+    # plist(dz,L3)
+    # dz1 = {}
+    # dz2 = {}
+    # dz3 = {}
+    # for i in [1, 2, 3]:
+    #     Var.set_order(i)
+    #     print(f'Setting Var order to {i:d}...', '='*8)
+    #     print("Test case 1: z = x^y + y^2 sin(x^3)")
+    #     x = Var(0.71)
+    #     y = Var(1.213)
+    #     z1 = x**y + y**2 * sin(x**3)
+    #     dz1[i] = testfn(x,y,z1,dorder=i)
+    #     print("Test case 2: z = y^5 * exp(x^0.5) - 5 * cos x * sin x")
+    #     x = Var(0.71)
+    #     y = Var(1.213)
+    #     z2 = y**5 * exp(sqrt(x)) - 5*cos(x)*sin(x)
+    #     dz2[i] = testfn(x,y,z2,dorder=i)
+    #     print("Test case 3: z = x^3 * y^2 + ln(y+x+x^2) + log10(x*y*sin x)")
+    #     x = Var(0.71)
+    #     y = Var(1.213) # re-defining new vars to reduce branches
+    #     z3 = x**3 * y**2 + ln(y+x+x**2) + log10(x*y*sin(x))
+    #     dz3[i] = testfn(x,y,z3,dorder=i)
+
+    # for i in [1,2,3]:
+    #     print(dz1[i])
+    #     print(dz2[i])
+    #     print(dz3[i])
+    # x = 0.71
+    # y = 1.213
+    # # change for simplicity
+    # print('Displaying results for 3 test cases against actual answer...')
+    # print('='*32)
+    # print("Test case 1: z = x^y + y^2 sin(x^3)")
+    # print('='*32)
+    # st = ['First', 'Second', 'Third']
+    # for i in [1,2,3]:
+    #     print(f'First derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{y*x**(y-1)+y**2*cos(x**3)*3*x**2:10.3f}{ln(x)*x**y + 2*y*sin(x**3):10.3f}')
+    #     id2 = 1 if i == 1 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][0]:10.3f}{dz1[i][id2]:10.3f}')
+    # print()
+    # for i in [2,3]:
+    #     print(f'Second derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{y * (y-1) * x**(y-2) + 6 * x * y**2 *cos(x**3) - 9 * x**4 * y**2 * sin(x**3):10.3f}{ln(x)*ln(x)*x**y+2*sin(x**3):10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][1][0]:10.3f}{dz1[i][3][id2]:10.3f}')
+    #     print(f'd/dxdy derivatives: via order {i:d}')
+    #     dxdy = y * ln(x) * x**(y-1) + 6 * x**2 * y * cos(x**3) + x**(y-1)
+    #     print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz1[i][1][id2]:10.3f}{dz1[i][3][0]:10.3f}')
+    # print()
+    # print(f'Third derivatives: via order 3')
+    # x3 = x**(-3 + y)*(-2 + y)*(-1 + y)*y + 6*y**2*cos(x**3) - 27*x**6*y**2*cos(x**3) - 54*x**3*y**2*sin(x**3)
+    # x2y = x**(-2 + y)*(-1 + y) + x**(-2 + y)*y + 12*x*y*cos(x**3) + x**(-2 + y)*(-1 + y)*y*log(x) - 18*x**4*y*sin(x**3)
+    # xy2 = 6*x**2*cos(x**3) + 2*x**(-1 + y)*ln(x) + x**(-1 + y)*y*ln(x)**2
+    # y3 = x**y*ln(x)**3
+    # print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
+    # print('{:20s}'.format('Third order result:'), f'{dz1[3][1][1][0]:10.3f}{dz1[3][1][1][1]:10.3f}{dz1[3][1][3][0]:10.3f}{dz1[3][1][3][1]:10.3f}{dz1[3][3][1][0]:10.3f}{dz1[3][3][1][1]:10.3f}{dz1[3][3][3][0]:10.3f}{dz1[3][3][3][1]:10.3f}')
+
+    # print('='*32)
+    # print("Test case 2: z = y^5 * exp(x^0.5) - 5 * cos x * sin x")
+    # print('='*32)
+    # for i in [1,2,3]:
+    #     print(f'First derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{0.5*y**5*x**(-0.5)*exp(x**0.5)-5*(cos(x)**2)+5*(sin(x)**2):10.3f}{5 * y**4 * exp(x**0.5):10.3f}')
+    #     id2 = 1 if i == 1 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][0]:10.3f}{dz2[i][id2]:10.3f}')
+    # print()
+    # for i in [2,3]:
+    #     print(f'Second derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{(-0.25*exp(x**0.5)*y**5)/x**1.5 + (0.25*exp(x**0.5)*y**5)/x**1. + 20*cos(x)*sin(x):10.3f}{20 * y**3 * exp(x**0.5):10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][1][0]:10.3f}{dz2[i][3][id2]:10.3f}')
+    #     print(f'd/dxdy derivatives: via order {i:d}')
+    #     dxdy = (2.5*exp(x**0.5)*y**4)/x**0.5
+    #     print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz2[i][1][id2]:10.3f}{dz2[i][3][0]:10.3f}')
+    # print()
+    # print(f'Third derivatives: via order 3')
+    # x3 = x**(-3 + y)*(-2 + y)*(-1 + y)*y + 6*y**2*cos(x**3) - 27*x**6*y**2*cos(x**3) - 54*x**3*y**2*sin(x**3)
+    # x2y = x**(-2 + y)*(-1 + y) + x**(-2 + y)*y + 12*x*y*cos(x**3) + x**(-2 + y)*(-1 + y)*y*log(x) - 18*x**4*y*sin(x**3)
+    # xy2 = 6*x**2*cos(x**3) + 2*x**(-1 + y)*ln(x) + x**(-1 + y)*y*ln(x)**2
+    # y3 = x**y*ln(x)**3
+    # print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
+    # print('{:20s}'.format('Third order result:'), f'{dz1[3][1][1][0]:10.3f}{dz1[3][1][1][1]:10.3f}{dz1[3][1][3][0]:10.3f}{dz1[3][1][3][1]:10.3f}{dz1[3][3][1][0]:10.3f}{dz1[3][3][1][1]:10.3f}{dz1[3][3][3][0]:10.3f}{dz1[3][3][3][1]:10.3f}')
+
+    # print('='*32)
+    # print("Test case 3: z = x^3 * y^2 + ln(y+x+x^2) + log10(x*y*sin x)")
+    # print('='*32)
+
+    # for i in [1,2,3]:
+    #     print(f'First derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{4.33918:10.3f}{1.63834:10.3f}')
+    #     id2 = 1 if i == 1 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][0]:10.3f}{dz3[i][id2]:10.3f}')
+    # print()
+    # for i in [2,3]:
+    #     print(f'Second derivatives: via order {i:d}')
+    #     print('{:20s}'.format('Actual values:'), f'{4.21424:10.3f}{0.250903:10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][1][0]:10.3f}{dz3[i][3][id2]:10.3f}')
+    #     print(f'd/dxdy derivatives: via order {i:d}')
+    #     dxdy =3.25803
+    #     print('{:20s}'.format('Actual values:'), f'{dxdy:10.3f}{dxdy:10.3f}')
+    #     id2 = 1 if i == 2 else 2
+    #     print('{:20s}'.format(f'{st[i-1]:s} order result:'), f'{dz3[i][1][id2]:10.3f}{dz3[i][3][0]:10.3f}')
+    # print()
+    # print(f'Third derivatives: via order 3')
+    # x3 = 13.1511
+    # x2y = 10.8145
+    # xy2 = 3.36312
+    # y3 = 0.626551
+    # print('{:20s}'.format('Actual values:'), f'{x3:10.3f}{x2y:10.3f}{x2y:10.3f}{xy2:10.3f}{x2y:10.3f}{xy2:10.3f}{xy2:10.3f}{y3:10.3f}')
+    # print('{:20s}'.format('Third order result:'), f'{dz3[3][1][1][0]:10.3f}{dz3[3][1][1][1]:10.3f}{dz3[3][1][3][0]:10.3f}{dz3[3][1][3][1]:10.3f}{dz3[3][3][1][0]:10.3f}{dz3[3][3][1][1]:10.3f}{dz3[3][3][3][0]:10.3f}{dz3[3][3][3][1]:10.3f}')
+
+    # print(Var.grad_count, Var.reset_count)
 
 if __name__ == '__main__':
     main()

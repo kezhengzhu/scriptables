@@ -134,28 +134,36 @@ class System(object):
         self.temp = self.temp.value
         return (A, P, S, G.value, H.value)
 
-    def __eqpg(self, x):
+    def __eqpg(self, x, print_, scaler):
         '''
         Takes in ndarray to find Pressure1 - Pressure2
         '''
         P = []
         G = []
-        for i in x:
+        v_ = [x[0]*scaler[0], x[1]*scaler[1]]
+        for i in v_:
             self.volume = Var(mt.m3mol_to_nm(i, molecules=self.__moltol()))
             A = self.helmholtz()
             Pi = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
             P.append(Pi)
             G.append((A.value + Pi * self.volume.value*pow(cst.nmtom,3))*cst.Na)
+
+        if print_: print(f'Current: v\'s = {v_[0]:7.3e}, {v_[1]:7.3e}; dP = {(P[0]-P[1]):7.3e}, dG = {(G[0]-G[1]):7.3e}')
         return np.array([(P[0]-P[1]), (G[0]-G[1])])
 
-    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,1), get_volume=False, get_gibbs=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': (0,1e5)}):
+    def vapour_pressure(self, temperature=None, initial_guess=(1e-4,.1), get_volume=False, get_gibbs=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': ((0.1,1e-2),(1e2,1e2))}, print_progress=False):
         if isinstance(temperature, float) or isinstance(temperature, int):
             self.temp = temperature
-        x0 = np.array(initial_guess)
+        scaler = initial_guess
+        x0 = np.array([1.,1.])
         if not isinstance(solver_kwargs, dict): solver_kwargs = {}
-        vle = solver(self.__eqpg, x0,**solver_kwargs)
-        if print_results: print(vle)
-        v = vle.x[1]
+        vle = solver(self.__eqpg, x0, args=(print_progress, scaler), **solver_kwargs)
+        if print_progress: print()
+        if print_results: 
+            print(f'Scaled wrt initial guess of ({scaler[0]:7.3e},{scaler[1]:7.3e})')
+            print(vle)
+        vlv = (vle.x[0]*scaler[0], vle.x[1]*scaler[1])
+        v = vlv[1]
         self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
 
         A = self.helmholtz()
@@ -163,7 +171,7 @@ class System(object):
         G = (A.value + P * self.volume.value*pow(cst.nmtom,3)) / self.__moltol()
         self.volume = mt.m3mol_to_nm(v, molecules=self.__moltol())
         result = (P,)
-        if get_volume: result += (vle.x,)
+        if get_volume: result += (vlv,)
         if get_gibbs: result += (G,)
         return result
 
@@ -198,6 +206,7 @@ class System(object):
             self.volume = Var(volume[i])
             A = self.helmholtz()
             P[i] = -derivative(A,self.volume) / pow(cst.nmtom,3)
+
             if gibbs: G[i] = (A.value + P[i] * self.volume.value*pow(cst.nmtom,3))/self.__moltol()
             if (i+1) % tenp == 0:
                 print(f'Progress at {(i+1)//tenp * 10:3d}%')
@@ -255,6 +264,107 @@ class System(object):
             varr[i] = getv.x[0]
 
         return varr if get_density == False else (varr, 1./varr)
+
+    def critical_point(self, initial_t=300, initial_v=3e-4, v_nd=None, get_volume=False, get_density=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': (0.1,10)}, xtol=1e-8, print_progress=False):
+        tscale = initial_t
+        x0 = np.array([1.])
+        if not isinstance(solver_kwargs, dict): solver_kwargs = {}
+        if not isinstance(v_nd, np.ndarray): v_nd = np.logspace(-4,-2, 50)
+        Var.set_order(2)
+        crit_pt = solver(self.__crit_t, x0, xtol=xtol, args=(v_nd, tscale, print_progress),**solver_kwargs)
+
+        if print_progress: print()
+        if print_results: print(crit_pt)
+        T = crit_pt.x[0]*tscale
+
+        crit_v = solver(self.__crit_v, np.array([initial_v]), xtol=xtol, args=(T,), bounds=(min(v_nd), max(v_nd)))
+        v = crit_v.x[0]
+        
+        Var.set_order(1)
+        self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+        self.temp = T
+
+        A = self.helmholtz()
+        P = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
+
+        self.volume = mt.m3mol_to_nm(v, molecules=self.__moltol())
+        results = (P, T)
+        if get_volume: results += (v,)
+        if get_density: results += (1/v,)
+
+        return results
+
+    def __crit_v(self, v, T):
+        self.temp = T
+        v = v[0]
+        self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+        A = self.helmholtz()
+        _, dpdv = derivative(A, self.volume, order=2)
+        dpdv = -dpdv / (pow(cst.nmtom,6) * cst.Na) / (cst.R * T)
+
+        return dpdv
+
+    def __crit_t(self, x, v_nd, scale, print_):
+        T = x[0] * scale
+        dp = np.zeros(np.size(v_nd))
+        for i in range(len(v_nd)):
+            v = v_nd[i]
+            self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+            self.temp = T
+            A = self.helmholtz()
+            _, dpdv = derivative(A, self.volume, order=2)
+            dp[i] = -dpdv / (pow(cst.nmtom,6) * cst.Na) / (cst.R * T)
+        if print_: 
+            print(f'Current: T = {T:7.3f}: max dP/dV = {max(dp):7.3e}', end='\r')
+        return max(dp)
+
+    def __critpt(self, x, print_, scale):
+        '''
+        Takes in (v, T) to solve for dP/dV = 0 and d2P/dV2 = 0
+        '''
+        v_ = scale[0]
+        T_ = scale[1]
+        v = x[0]*v_
+        T = x[1]*T_
+        self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+        self.temp = T
+
+        A = self.helmholtz()
+        dP = -np.array(derivative(A, self.volume, order=3)) / pow(cst.nmtom,3)
+        dP[1] = dP[1] / (pow(cst.nmtom,3) * cst.Na) / (cst.R * T)
+        dP[2] = dP[2] / (pow(cst.nmtom,6) * pow(cst.Na,2)) / (cst.R * T)
+        dP[0] = dP[0] / (cst.R * T)
+        if print_:
+            print(f'Current: v = {v:7.3e}, T = {T:7.3f}: P, dP/dV, d2P/dV2 = {dP[0]:7.3e},{dP[1]:7.3e},{dP[2]:7.3e}', end='\r')
+        dP[0] = min(dP[0], 0)
+        return dP
+
+    def get_critical_point(self, initial_guess=(3e-4, 300), get_volume=False, get_density=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': ((1e-1,1e-1), (10,10))}, xtol=1e-8, print_progress=False):
+        scaler = initial_guess
+        x0 = np.array([1.,1.])
+        if not isinstance(solver_kwargs, dict): solver_kwargs = {}
+        Var.set_order(3)
+        crit_pt = solver(self.__critpt, x0, xtol=xtol, args=(print_progress, scaler),**solver_kwargs)
+
+        if print_progress: print()
+        if print_results: print(crit_pt)
+        vT = crit_pt.x
+        v = vT[0]*scaler[0]
+        T = vT[1]*scaler[1]
+
+        Var.set_order(1)
+        self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+        self.temp = T
+
+        A = self.helmholtz()
+        P = -derivative(A, self.volume, order=1) / pow(cst.nmtom,3)
+
+        self.volume = mt.m3mol_to_nm(v, molecules=self.__moltol())
+        results = (P, T)
+        if get_volume: results += (v,)
+        if get_density: results += (1/v,)
+
+        return results
 
     def a_ideal(self):
         result = 0.
@@ -1015,11 +1125,29 @@ def main():
     print('{:18s}'.format('G (J/mol):'), G*cst.Na)
     print('{:18s}'.format('H (J/mol):'), H*cst.Na)
     print('=====================')
-    print('Testing vapour_pressure')
-    VP, vx, EQG = s.vapour_pressure(400, initial_guess=(0.0001,0.1), get_volume=True, get_gibbs=True)
-    print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
-    getv = s.single_phase_v(20e5, T=400)
-    print('{:18s}'.format('v at 20bar 400K:'), getv)
+
+    # print('Testing vapour_pressure')
+    # VP, vx, EQG = s.vapour_pressure(490, initial_guess=(0.0001,0.06), get_volume=True, get_gibbs=True, print_progress=True)
+    # print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
+    # getv = s.single_phase_v(20e5, T=400)
+    # print('{:18s}'.format('v at 20bar 400K:'), getv)
+    print()
+    print('='*21)
+    print('Testing locating critical point')
+    Pc, Tc, vc = s.critical_point(initial_t=500., print_progress=True, get_volume=True)
+    print('{:18s}'.format('P_crit (bar):'), Pc*cst.patobar)
+    print('{:18s}'.format('T_crit (K):'), Tc)
+    print('{:18s}'.format('V_crit (m3/mol):'), vc)
+    print('{:18s}'.format('rho_crit (mol/m3):'), 1/vc)
+
+    # v = np.logspace(-4,2,100)
+    # P = s.p_v_isotherm(v, temperature=Tc)
+    # fig, ax = plt.subplots()
+    # ax.semilogx(v, P*cst.patobar,'r-')
+    # ax.semilogx([vc, vc], [-15,Pc*cst.patobar], 'b-')
+    # ax.set_ylim([-15,30])
+    # plt.show()
+
     # vn = mt.m3mol_to_nm(vx[0], 1000)
     # s.volume = vn*(1+1e-10)
     # Ap = s.helmholtz()
@@ -1047,67 +1175,67 @@ def main():
     # g.xlim(1e-4,1e2,2)
     # g.draw()
 
-    print("="*5,"Generating hexane (19.33/6.0) data for ML (v,T->P)","="*5)
+    # print("="*5,"Generating hexane (19.33/6.0) data for ML (v,T->P)","="*5)
 
-    temp_range = np.linspace(300,450,200)
-    p_vap = np.zeros(np.size(temp_range))
-    vv = np.zeros(np.size(temp_range))
-    vl = np.zeros(np.size(temp_range))
-    gf = np.zeros(np.size(temp_range))
-    tlen = len(temp_range)
-    tenp = tlen//10
-    pl_p = []
-    pl_g = []
-    pl_pr = []
-    pl_gr = []
-    v = np.logspace(-4,2,1000)
-    trows = []
-    for i in range(len(temp_range)):
-        t = temp_range[i]
-        Pv, vlv, Geq = s.vapour_pressure(t, get_volume=True, get_gibbs=True, print_results=False)
-        P, G = s.p_v_isotherm(v, temperature=t, gibbs=True)
-        p_vap[i] = Pv*cst.patobar
-        vv[i] = np.max(vlv)(i)
-        vl[i] = np.min(vlv)
-        gf[i] = Geq*cst.Na
-        p_real = np.copy(P)
-        p_real[(v > vl[i]) & (v < vv[i])] = Pv
-        g_real = np.copy(G)
-        g_real[(v > vl[i]) & (v < vv[i])] = Geq
-        pl_p.append(Plot(v,P*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
-        pl_g.append(Plot(v,G*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
-        pl_pr.append(Plot(v,p_real*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
-        pl_gr.append(Plot(v,g_real*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
-        l_phase = np.where(v <= vl[i], 1, 0)
-        v_phase = np.where(v >= vv[i], 1, 0)
-        vl_2phase = np.where((v > vl[i]) & (v < vv[i]), 1, 0)
-        l_frac = np.where((v > vl[i]) & (v < vv[i]), (vv[i] - v)/(vv[i] - vl[i]), v <= vl[i])
-        v_frac = np.where((v > vl[i]) & (v < vv[i]), (v - vl[i])/(vv[i] - vl[i]), v >= vv[i])
+    # temp_range = np.linspace(300,450,200)
+    # p_vap = np.zeros(np.size(temp_range))
+    # vv = np.zeros(np.size(temp_range))
+    # vl = np.zeros(np.size(temp_range))
+    # gf = np.zeros(np.size(temp_range))
+    # tlen = len(temp_range)
+    # tenp = tlen//10
+    # pl_p = []
+    # pl_g = []
+    # pl_pr = []
+    # pl_gr = []
+    # v = np.logspace(-4,2,1000)
+    # trows = []
+    # for i in range(len(temp_range)):
+    #     t = temp_range[i]
+    #     Pv, vlv, Geq = s.vapour_pressure(t, get_volume=True, get_gibbs=True, print_results=False)
+    #     P, G = s.p_v_isotherm(v, temperature=t, gibbs=True)
+    #     p_vap[i] = Pv*cst.patobar
+    #     vv[i] = np.max(vlv)(i)
+    #     vl[i] = np.min(vlv)
+    #     gf[i] = Geq*cst.Na
+    #     p_real = np.copy(P)
+    #     p_real[(v > vl[i]) & (v < vv[i])] = Pv
+    #     g_real = np.copy(G)
+    #     g_real[(v > vl[i]) & (v < vv[i])] = Geq
+    #     pl_p.append(Plot(v,P*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+    #     pl_g.append(Plot(v,G*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+    #     pl_pr.append(Plot(v,p_real*cst.patobar, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+    #     pl_gr.append(Plot(v,g_real*cst.Na, label="T = {:5.1f}K".format(t), color='r', axes="semilogx"))
+    #     l_phase = np.where(v <= vl[i], 1, 0)
+    #     v_phase = np.where(v >= vv[i], 1, 0)
+    #     vl_2phase = np.where((v > vl[i]) & (v < vv[i]), 1, 0)
+    #     l_frac = np.where((v > vl[i]) & (v < vv[i]), (vv[i] - v)/(vv[i] - vl[i]), v <= vl[i])
+    #     v_frac = np.where((v > vl[i]) & (v < vv[i]), (v - vl[i])/(vv[i] - vl[i]), v >= vv[i])
 
-        if (i+1) % tenp == 0:
-            print(f'Vapour pressure and p-v isotherm calculations at {(i+1):3d} iterations')
+    #     if (i+1) % tenp == 0:
+    #         print(f'Vapour pressure and p-v isotherm calculations at {(i+1):3d} iterations')
 
-        trows.append(np.column_stack([v,1/v, np.array([temp_range[i]]*len(v)), P*cst.patobar, p_real*cst.patobar, G*cst.Na, g_real*cst.Na, l_phase, v_phase, vl_2phase, l_frac, v_frac]))
+    #     trows.append(np.column_stack([v,1/v, np.array([temp_range[i]]*len(v)), P*cst.patobar, p_real*cst.patobar, G*cst.Na, g_real*cst.Na, l_phase, v_phase, vl_2phase, l_frac, v_frac]))
 
 
-    df = pd.DataFrame(np.vstack(trows))
-    df.to_csv('n-hexane-vle.csv', index=False)
-    g = Graph(subplots=4, titles=["P vs v","G vs v","P vs v","G vs v"])
-    g.add_plots(*pl_p,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=1)
-    g.add_plots(*pl_g,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=2)
-    g.add_plots(*pl_pr,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=3)
-    g.add_plots(*pl_gr,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=4)
-    g.set_xlabels(*["volume (m3/mol)"]*4)
-    g.set_ylabels(*["pressure (bar)","gibbs free energy (J/mol)"]*2)
-    g.ylim(0,20,1)
-    g.ylim(-1e4,1e4,2)
-    g.xlim(1e-4,1e1,1)
-    g.xlim(1e-4,1e1,2)
-    g.ylim(0,20,3)
-    g.ylim(-1e4,1e4,4)
-    g.xlim(1e-4,1e1,3)
-    g.xlim(1e-4,1e1,4)
-    g.draw()
+    # df = pd.DataFrame(np.vstack(trows))
+    # df.to_csv('n-hexane-vle.csv', index=False)
+    # g = Graph(subplots=4, titles=["P vs v","G vs v","P vs v","G vs v"])
+    # g.add_plots(*pl_p,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=1)
+    # g.add_plots(*pl_g,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=2)
+    # g.add_plots(*pl_pr,Plot(vv, p_vap, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, p_vap, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=3)
+    # g.add_plots(*pl_gr,Plot(vv, gf, label="Vapour phase boundary", color='b', axes="semilogx"),Plot(vl, gf, label="Liquid phase boundary", color='b', axes="semilogx"), subplot=4)
+    # g.set_xlabels(*["volume (m3/mol)"]*4)
+    # g.set_ylabels(*["pressure (bar)","gibbs free energy (J/mol)"]*2)
+    # g.ylim(0,20,1)
+    # g.ylim(-1e4,1e4,2)
+    # g.xlim(1e-4,1e1,1)
+    # g.xlim(1e-4,1e1,2)
+    # g.ylim(0,20,3)
+    # g.ylim(-1e4,1e4,4)
+    # g.xlim(1e-4,1e1,3)
+    # g.xlim(1e-4,1e1,4)
+    # g.draw()
 
     # colors = list('rbgcmyk')
     '''
