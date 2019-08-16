@@ -394,6 +394,19 @@ class System(object):
         return result
 
     def a_assoc(self):
+        # @TODO: implement assoc term
+        # sum across Ncomp Ngroups and Nsites for function of X_icomp,kgroup,asite
+        result = 0.
+
+        for comp in self.comps:
+            molfrac = self.molfrac[comp]
+            for g in self.comps[comp].gtypes:
+                numg_ki = self.comps[comp].gtypes[g]
+                # Loop wrt to no. of sites TYPE in this group so we need to know 
+                # how many sites type are there in each group on top of 
+                # number of sites in this type
+                # Take sum for ln(X_i,k,a) + (1 - X_i,k,a) / 2
+
         return 0
 
     ### for all
@@ -874,6 +887,42 @@ class System(object):
         return result
 
     ### for assoc
+    def __xika(self, gcomp):
+        # solving for assoc term
+        return 0
+
+    def __gdhs_assoc(self, gcomp1, gcomp2):
+        # getting gdhs for given component i and j
+        hsdii = gcomp1.hsdiam(self.temp) * cst.nmtom
+        hsdjj = gcomp2.hsdiam(self.temp) * cst.nmtom
+        xi_1 = self.__xi_m(1)
+        xi_2 = self.__xi_m(2)
+        xi_3 = self.__xi_m(3)
+
+        t1 = 1 / (1 - xi_3)
+        t2 = 3 * (hsdii * hsdjj) / (hsdii + hsdjj) * xi_2 / (1 - xi_3)**2
+        t3 = 2 * (hsdii * hsdjj)**2 / (hsdii + hsdjj)**2 * xi_2**2 / (1 - xi_3)**3
+
+        result = t1 + t2 + t3
+        return result
+
+    def __k_ij_kl_ab(self):
+        # bonding volume for association site
+        # rcab is range of association interaction
+        # rdab is the distance of square-well bonding sites placed from the centres of Mie segments
+
+        dij = 1. # change this
+        rcab = 1. # change this
+        rdab = 1. # change this
+        sigij = 1. # change this
+
+        t1 = ln((rcab + 2 * rdab) / dij) * (6 * rcab**3 + 18 * rcab**2 * rdab - 24 * rdab**3)
+        t2 = (rcab + 2 * rdab - dij) * (22 * rdab**2 - 5 * rcab * rdab - 7 * rdab * dij - 8 * rcab**2 + rcab * dij + dij**2)
+
+        result = pi * dij ** 2 / (18 * sigij * rdab ** 2) * (t1 + t2)
+
+        return result
+
 
 
 class Component(object):
@@ -998,6 +1047,15 @@ class Component(object):
     def __zki(self, gtype):
         return self.__gshape(gtype) / self.__gshapemol()
 
+# @TODO: apply sites as a class and add to grouptype
+class AssocSite(object):
+    def __init__(self, rcab=0.3, epsi_ab=2800., rdab=0.4):
+        self.rcab = rcab # dimensionless, wrt to sigma of group attached
+        self.epsi_ab = epsi_ab # dimensionless, wrt to boltzman const
+        self.rdab = rdab # dimensionless, wrt to sigma of group attached
+
+
+
 class GroupType(object):
     def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=1, id_seg=1):
         self.rep = lambda_r
@@ -1081,9 +1139,12 @@ def main():
     hexane = Component(86.1754)
     hexane.quick_set((c6h,2)) 
 
+    testg = GroupType(8.,5.,0.29715584,275., shape_factor=1.,id_seg=1)
+    testc = Component(10.)
+    testc.quick_set((testg,1))
     s = System()
     # s.quick_set([meth, ljmol], [100, 100])
-    s.quick_set((hexane,1000)) 
+    s.quick_set((testc,1000)) 
     # print(s.comps, s.moles)
     # print(lj.hsdiam(273), ch.hsdiam(273))
 
@@ -1091,61 +1152,112 @@ def main():
     # print(octane.param_ii("sigma"), octane.param_ii("hsd",273.), octane.param_ii("rep"))
     # print(ljmol.param_ii("sigma"), ljmol.param_ii("hsd",273.), ljmol.param_ii("rep"))
 
-    tm = 300.
-    s.temp = tm
-    vm = 0.12725355948027697
-    vn = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
-    s.volume = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
-    print('cgss is given by: ', s._System__cgshapesum())
-    print('A-IDEAL term: =======')
-    print('{:18s}'.format('value: '), s.a_ideal())
-    print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
-    print('A-MONO term: ========')
-    print('{:18s}'.format('value: '), s.a_mono())
-    print('{:18s}'.format('a_hs: '), s._System__a_hs())
-    print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
-    print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
-    print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
-    print('A-CHAIN term: =======')
-    print('{:18s}'.format('value: '), s.a_chain())
-    print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
-    print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
-    print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
-    print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
-    print('=====================')
-    print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
-    print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
-    print('{:18s}'.format('System size:'), s._System__moltol())
-    print('=====================')
+    # here
+    # tm = 300.
+    # s.temp = tm
+    # vm = 0.12725355948027697
+    # vn = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
+    # s.volume = s._System__moltol() * vm / (cst.Na * pow(cst.nmtom,3))
+    # print('cgss is given by: ', s._System__cgshapesum())
+    # print('A-IDEAL term: =======')
+    # print('{:18s}'.format('value: '), s.a_ideal())
+    # print('{:18s}'.format('thermal debrog: '), hexane.thdebroglie(s.temp))
+    # print('A-MONO term: ========')
+    # print('{:18s}'.format('value: '), s.a_mono())
+    # print('{:18s}'.format('a_hs: '), s._System__a_hs())
+    # print('{:18s}'.format('a_1: '), s._System__a_1()*(cst.k*s.temp))
+    # print('{:18s}'.format('a_2: '), s._System__a_2()*(cst.k*s.temp)**2)
+    # print('{:18s}'.format('a_3: '), s._System__a_3()*(cst.k*s.temp)**3)
+    # print('A-CHAIN term: =======')
+    # print('{:18s}'.format('value: '), s.a_chain())
+    # print('{:18s}'.format('g-mie: '), s._System__gmieii(hexane.get_gtypeii()))
+    # print('{:18s}'.format('gdhs: '), s._System__gdhs(hexane.get_gtypeii()))
+    # print('{:18s}'.format('g1: '), s._System__g1(hexane.get_gtypeii()))
+    # print('{:18s}'.format('g2: '), s._System__g2(hexane.get_gtypeii()))
+    # print('=====================')
+    # print('{:18s}'.format('A/NkT: '), s.a_ideal() + s.a_mono() + s.a_chain())
+    # print('{:18s}'.format('Density (mol/m3):'), s._System__nden()/cst.Na)
+    # print('{:18s}'.format('System size:'), s._System__moltol())
+    # print('=====================')
     
-    (A, P, S, G, H) = s.get_state(vm, temperature=tm)
-    print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
-    print('{:18s}'.format('A per mol:'), A*cst.Na)
-    print('{:18s}'.format('S (J/(K mol)):'), S*cst.Na)
-    print('{:18s}'.format('G (J/mol):'), G*cst.Na)
-    print('{:18s}'.format('H (J/mol):'), H*cst.Na)
+    # (A, P, S, G, H) = s.get_state(vm, temperature=tm)
+    # print('{:18s}'.format('Pressure (MPa):'), P*1e-6)
+    # print('{:18s}'.format('A per mol:'), A*cst.Na)
+    # print('{:18s}'.format('S (J/(K mol)):'), S*cst.Na)
+    # print('{:18s}'.format('G (J/mol):'), G*cst.Na)
+    # print('{:18s}'.format('H (J/mol):'), H*cst.Na)
     print('=====================')
 
     # print('Testing vapour_pressure')
-    # VP, vx, EQG = s.vapour_pressure(490, initial_guess=(0.0001,0.06), get_volume=True, get_gibbs=True, print_progress=True)
+    # VP, vx, EQG = s.vapour_pressure(275, initial_guess=(3.5e-5,0.01), get_volume=True, get_gibbs=True, print_progress=True)
     # print('{:18s}'.format('Vapour Pressure:'), VP*1e-6)
     # getv = s.single_phase_v(20e5, T=400)
     # print('{:18s}'.format('v at 20bar 400K:'), getv)
-    print()
-    print('='*21)
+    # print()
+    # print('='*21)
+
+
     print('Testing locating critical point')
-    Pc, Tc, vc = s.critical_point(initial_t=500., print_progress=True, get_volume=True)
+    vnd = np.logspace(-5,-2, 70)
+    # Pc, Tc, vc = s.critical_point(initial_t=600., initial_v=5e-5, v_nd=vnd, print_progress=True, get_volume=True)
+    Pc, Tc, vc = (348.13847810761837 * 1e5, 667.5455878098154, 5.457006625794028e-05)
     print('{:18s}'.format('P_crit (bar):'), Pc*cst.patobar)
     print('{:18s}'.format('T_crit (K):'), Tc)
     print('{:18s}'.format('V_crit (m3/mol):'), vc)
     print('{:18s}'.format('rho_crit (mol/m3):'), 1/vc)
 
-    # v = np.logspace(-4,2,100)
-    # P = s.p_v_isotherm(v, temperature=Tc)
+    t_data = np.array([])
+    p_data = np.array([])
+    rhol = np.array([])
+    rhog = np.array([])
+    vl_data = np.array([])
+    vv_data = np.array([])
+
+    temp_range = np.linspace(Tc * 0.45, Tc * 0.995, 30) # for 30 points
+    for i in range(len(temp_range)):
+        t = temp_range[i]
+        try:
+            if i == 0:
+                ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
+            else:
+                ig = vle
+            pv, vle = s.vapour_pressure(t, initial_guess=ig, get_volume=True, print_results=False)
+            if abs(vle[0] - vle[1]) < 1e-6:
+                print(f'VLE points solver failed to converge at meaningful results at T={t:5.2f}, points too similar ({vle[0]:7.3e}, {vle[1]:7.3e})')
+                vle = ig
+            else:
+                t_data = np.append(t_data, t)
+                p_data = np.append(p_data, pv * cst.patobar)
+                vl_data = np.append(vl_data, min(vle))
+                vv_data = np.append(vv_data, max(vle))
+                rhol = np.append(rhol, 1/min(vle))
+                rhog = np.append(rhog, 1/max(vle))
+                print(f'Getting VLE at P = {pv*cst.patobar:5.2f} bar, T = {t:5.2f} K, v_l = {min(vle):7.3e}, v_v = {max(vle):7.3e}')
+        except:
+            print('VLE solver failed at T={t:5.2f} due to out of range operations. Current point aborted.')
+
+    t_data = np.append(t_data, Tc)
+    p_data = np.append(p_data, Pc * cst.patobar)
+    vl_data = np.append(vl_data, vc)
+    vv_data = np.append(vv_data, vc)
+    rhol = np.append(rhol, 1/vc)
+    rhog = np.append(rhog, 1/vc)
+
+    df = pd.DataFrame(np.column_stack([t_data, p_data, vl_data, vv_data, rhol, rhog]))
+    outputfile = 'lambda-8-5.csv'
+    df.to_csv(outputfile, index=False, header=['T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
+    print()
+    print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+
+
+
+    # v = np.logspace(-5,2,100)
     # fig, ax = plt.subplots()
-    # ax.semilogx(v, P*cst.patobar,'r-')
-    # ax.semilogx([vc, vc], [-15,Pc*cst.patobar], 'b-')
-    # ax.set_ylim([-15,30])
+    # for t in [600]:
+    #     P = s.p_v_isotherm(v, temperature=t)
+    #     ax.semilogx(v, P*cst.patobar)
+    # ax.set_ylim([-15,200])
+    
     # plt.show()
 
     # vn = mt.m3mol_to_nm(vx[0], 1000)
