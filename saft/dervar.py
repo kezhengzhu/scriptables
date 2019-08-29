@@ -412,8 +412,49 @@ def derivative(y, *args, order=1, getvar=False):
         reduc = nxtreduc
         if len(nxtsubj) == 1: result = result + (get_op(nxtsubj[0], getvar),)
         else: result = result + ([get_op(j, getvar) for j in nxtsubj],)
+    for x in args:
+        x.reset()
+
     if len(result) == 1: 
         return result[0]
+    return result
+
+def jacobian(func, x, args=(), kwargs={}, getvar=False):
+    '''
+    Returns jacobian of a given function with AD
+    Function parameters: return either a value or a list of value, taking in args
+    such that: func(x, args, kwargs)
+    '''
+    Var.set_order(1)
+    # First run to determine output size
+    out = func(x, *args, **kwargs)
+    if isinstance(out, (int, float)):
+        flen = 0
+    elif isinstance(out, list) and all(isinstance(y, (int, float)) for y in out):
+        flen = len(out)
+    else:
+        raise Exception("Jacobian output function should return integer/float or list of values")
+
+    # Next generate the output Vars
+    if isinstance(x, list) and all(isinstance(xi, (int, float)) for xi in x):
+        xl_ = []
+        for xval in x:
+            xl_.append(Var(xval))
+        yl_ = func(xl_, *args, **kwargs)
+    elif isinstance(x, (int, float)):
+        xl_ = [Var(x)]
+        yl_ = func(xl_[0], *args, **kwargs)
+    else:
+        raise Exception("Jacobian inputs must be integer/float or list of values")
+
+    if flen == 0:
+        return derivative(yl_, *xl_, order=1, getvar=False)
+
+    result = []
+    for i in range(flen):
+        yout = derivative(yl_[i], *xl_, order=1, getvar=False)
+        result.append(list(yout))
+
     return result
 
 ############# Below this is testing ##############
@@ -452,6 +493,28 @@ def plist(L1, L2, prefix=""):
             xy = 'x' if i==0 else 'y'
             print(prefix+xy,f'{L1[i]:6.3f}, {L2[i]:6.3f}')
 
+def mulfunc(x):
+    assert(len(x) == 3)
+    y = [0] * 4
+    y[0] = x[0] ** 2 - 2 * x[1]
+    y[1] = -x[0] ** 3 + 3 * x[2] ** 2 - x[1]
+    y[2] = x[1] ** 2 - 4 * x[0] + exp(-x[2]) / (1 - x[2])
+    y[3] = exp(-(x[0]+2*x[1]-x[2])**2) /(1 - (x[0] + x[1] + x[2]))
+
+    return y
+def mulfunc_d(x):
+    assert(len(x) == 3)
+    dy = [0] * 4
+    dy[0] = [2 * x[0], -2., 0.]
+    dy[1] = [-3 * x[0]**2, -1., 6 * x[2]]
+    dy[2] = [-4., 2*x[1], x[2] * exp(-x[2]) / (1-x[2])**2]
+    y4 = exp(-(x[0]+2*x[1]-x[2])**2) /(1 - (x[0] + x[1] + x[2]))
+    dy[3] = [-2*(x[0]+2*x[1]-x[2]) * y4 + y4 / (1 - (x[0] + x[1] + x[2])),
+             -4*(x[0]+2*x[1]-x[2]) * y4 + y4 / (1 - (x[0] + x[1] + x[2])),
+              2*(x[0]+2*x[1]-x[2]) * y4 + y4 / (1 - (x[0] + x[1] + x[2]))]
+
+    return dy
+
 def main():
     print('sin test')
     Var.set_order(3)
@@ -485,8 +548,17 @@ def main():
     z2 = sin(x)
     print(x.children)
     print(derivative(z2, x, order=3))
+
     x = 0.71
     print(cos(x), -sin(x), -cos(x))
+    fx = lambda x: exp(-sin(x) / x**2) - 1
+    print(jacobian(fx, 12), -(cos(12)/12**2 - 2*sin(12)/12**3)*exp(-sin(12)/12**2))
+    xL = jacobian(mulfunc, [0.31, 0.12, 0.74])
+    dyL = mulfunc_d([0.31, 0.12, 0.74])
+    for L in xL: 
+        print(L)
+    for L in dyL:
+        print(L)
     # zs = np.zeros(100)
     # dz = np.zeros(100)
     # d2z = np.zeros(100)

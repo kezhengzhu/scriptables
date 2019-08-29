@@ -241,12 +241,64 @@ class System(object):
 
         return P - targetP
 
-    def single_phase_v(self, P, T=None, print_results=True, get_density=False):
+    def __getp_jac(self, x, targetP):
+
+        x = x[0]
+        self.volume = Var(mt.m3mol_to_nm(x, molecules=self.__moltol()))
+        A = self.helmholtz()
+        P, dP = derivative(A, self.volume, order=2)
+        dP = -dP / pow(cst.nmtom,6) / cst.Na * self.__moltol() 
+
+        return np.array([dP])
+
+    def sp_v_test(self, P, T=None, print_results=True, get_density=False, use_jac=False, vle_ig=(1e-5, 1e-3)):
         if isinstance(T, float):
             self.temp = T
 
         if isinstance(P, float) or isinstance(P, int):
-            Pv, vle = self.vapour_pressure(temperature=T, get_volume=True)
+            # Set system P to target P for jacobian
+            self.pressure = P
+            Var.set_order(2)
+            Pv, vle = self.vapour_pressure(temperature=T, initial_guess=vle_ig, get_volume=True, print_results=False)
+            v_init = vle[0] if P > Pv else vle[1]
+            fprime = self.__getp_jac if use_jac else None
+            getv, info, flag, merr = fsolve(self.__getp, v_init, args=(P,), full_output=True, fprime=fprime)
+
+            try: assert(flag == 1)
+            except: print(merr)
+            if print_results: 
+                print('Result parameters of fsolve:')
+                for key in info:
+                    print('{:>10s}:'.format(key), info[key])
+
+            Var.set_order(1)
+
+            return getv[0] if get_density == False else (getv[0], 1/getv[0])
+
+        mt.checkerr(isinstance(P, np.ndarray), "Use float/int or ndarray for pressure inputs")
+        varr = np.zeros(np.size(P))
+        Var.set_order(2)
+        fprime = self.__getp_jac if use_jac else None
+        for i in range(len(P)):
+            self.pressure = P[i]
+            Pv, vle = self.vapour_pressure(temperature=T, initial_guess=vle_ig, get_volume=True, print_results=False)
+            v_init = vle[0] if P[i] > Pv else vle[1]
+            getv, info, flag, merr = fsolve(self.__getp, v_init, args=(P[i],), full_output=True, fprime=fprime)
+
+            try: assert(flag == 1)
+            except: print(merr)
+
+            varr[i] = getv[0]
+
+        Var.set_order(1)
+        return varr if get_density == False else (varr, 1./varr)
+
+    def single_phase_v(self, P, T=None, print_results=True, get_density=False, vle_ig=(1e-4, .1)):
+        if isinstance(T, float):
+            self.temp = T
+
+        if isinstance(P, float) or isinstance(P, int):
+            Pv, vle = self.vapour_pressure(temperature=T, initial_guess=vle_ig, get_volume=True, print_results=False)
             v_init = vle[0] if P > Pv else vle[1]
             getv = least_squares(self.__getp, v_init, kwargs={"targetP": P})
 
@@ -257,7 +309,7 @@ class System(object):
         mt.checkerr(isinstance(P, np.ndarray), "Use float/int or ndarray for pressure inputs")
         varr = np.zeros(np.size(P))
         for i in range(len(P)):
-            Pv, vle = self.vapour_pressure(temperature=T, get_volume=True)
+            Pv, vle = self.vapour_pressure(temperature=T, initial_guess=vle_ig, get_volume=True, print_results=False)
             v_init = vle[0] if P[i] > Pv else vle[1]
             getv = least_squares(self.__getp, v_init, kwargs={"targetP": P[i]})
 
@@ -523,8 +575,7 @@ class System(object):
     ### for mono
     ##### for hs term
     def __a_hs(self):
-
-        xi3 = self.__xi_m(3) # dimless
+        # xi3 = self.__xi_m(3) # dimless
         # print('With pure imp:',(4*xi3 - 3*pow(xi3,2))/pow(1-xi3,2))
         # print('This ans but with segden:', 6 * self.__a_hs_xiterm() / (pi* self.__segden()))
         return 6 * self.__a_hs_xiterm() / (pi * self.__nden())
@@ -889,7 +940,15 @@ class System(object):
     ### for assoc
     def __xika(self, gcomp):
         # solving for assoc term
+        # turn off AD and then turn back on again?
         return 0
+
+    def __f_kl_ab(self, gcomp):
+        # f_kl_ab is the energy exponential of hydrogen bond / association
+        epsi_ab = 1. # change this
+        result = exp(epsi_ab / self.temp) - 1 # this is assuming epsi_ab is in units of K
+
+        return result
 
     def __gdhs_assoc(self, gcomp1, gcomp2):
         # getting gdhs for given component i and j
@@ -898,6 +957,8 @@ class System(object):
         xi_1 = self.__xi_m(1)
         xi_2 = self.__xi_m(2)
         xi_3 = self.__xi_m(3)
+        # potential savings: save xi_m once for both hard sphere and assoc 
+        # so don't need to construct new tree for each new xi_m
 
         t1 = 1 / (1 - xi_3)
         t2 = 3 * (hsdii * hsdjj) / (hsdii + hsdjj) * xi_2 / (1 - xi_3)**2
@@ -1206,6 +1267,25 @@ def main():
     print('{:18s}'.format('V_crit (m3/mol):'), vc)
     print('{:18s}'.format('rho_crit (mol/m3):'), 1/vc)
 
+    testgp = s._System__getp([0.033], 400)
+    print('{:18s}'.format('Testing __getp:'), testgp)
+    testdgp_1 = s._System__getp([0.033+1e-9], 400) - testgp
+    testdgp_2 = s._System__getp([0.033-1e-9], 400) - testgp
+    print('{:18s}'.format('Testing d(__getp):'), (testdgp_1 - testdgp_2)/2e-9)
+    Var.set_order(2)
+    jacdgp = s._System__getp_jac([0.033], 400)
+    print('{:18s}'.format('Testing jac(__getp):'), jacdgp)
+
+    print('=====================')
+
+    ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
+    vget = s.single_phase_v(1e5, 300, vle_ig=ig, print_results=False)
+    print('{:18s}'.format('Finding Pvap with least_sq:'), vget)
+    vget = s.sp_v_test(1e5, 400, vle_ig=ig, print_results=False)
+    print('{:18s}'.format('Finding Pvap with fsolve:'), vget)
+    vget = s.sp_v_test(1e5, 400, use_jac=True, vle_ig=ig, print_results=False)
+    print('{:18s}'.format('Finding Pvap with fsolve+jac:'), vget)
+    '''
     t_data = np.array([])
     p_data = np.array([])
     rhol = np.array([])
@@ -1244,11 +1324,11 @@ def main():
     rhog = np.append(rhog, 1/vc)
 
     df = pd.DataFrame(np.column_stack([t_data, p_data, vl_data, vv_data, rhol, rhog]))
-    outputfile = 'lambda-8-5.csv'
+    outputfile = 'lambda-8-5-2.csv'
     df.to_csv(outputfile, index=False, header=['T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
     print()
     print(f'Data generation complete. Output file: {outputfile}', ' '*5)
-
+    '''
 
 
     # v = np.logspace(-5,2,100)
