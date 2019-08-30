@@ -1,5 +1,7 @@
 
+
 import math
+import numpy as np
 
 def checkerr(cond, message):
     if not (cond):
@@ -16,7 +18,7 @@ class Var(object):
     count = 0
     count_var = False
     def __init__(self, value):
-        checkerr(isinstance(value, (int, float)), "Use float values for Var object")
+        checkerr(isinstance(value, (int, float, np.ndarray)), "Use float values for Var object")
         self.value = value
         self.children = []
         self.grad_val = None
@@ -25,11 +27,16 @@ class Var(object):
         self.isreset = True
 
     def __repr__(self):
+        if isinstance(self.value, np.ndarray):
+            return self.value.__repr__() + ' with grad'
         return f'{self.value:11.3e}' + (f' with grad{self.grad_val:11.3e}' if self.grad_val is not None else '')
 
     def set_subject(self):
         self.isreset = False
-        self.grad_val = 1.
+        if isinstance(self.value, np.ndarray):
+            self.grad_val = np.ones(self.value.shape)
+        else:
+            self.grad_val = 1.
 
     grad_count = 0
     count_grad = False
@@ -86,13 +93,18 @@ class Var(object):
         '''
         Var addition: applying chain rule and adding result as children of current Var
         '''
-        checkerr(isinstance(other, (Var, int, float)), "Var addition has to be applied onto other Vars or int/floats")
+        checkerr(isinstance(other, (Var, int, float, np.ndarray)), "Var addition has to be applied onto other Vars or int/floats")
 
-        if isinstance(other, (int, float)):
+        if isinstance(other, (int, float, np.ndarray)):
+            if isinstance(self.value, np.ndarray) and isinstance(other, np.ndarray):
+                checkerr(self.value.shape == other.shape, "numpy array operations require array shape to be identical")
             z = Var(self.value + other)
             self.children.append((1., z))
             return z
-
+        
+        if isinstance(self.value, np.ndarray) and isinstance(other.value, np.ndarray):
+            checkerr(self.value.shape == other.value.shape, "numpy array operations require array shape to be identical")
+        
         z = Var(self.value + other.value)
         self.children.append((1., z))
         other.children.append((1., z))
@@ -108,14 +120,19 @@ class Var(object):
         '''
         Var subtraction: applying chain rule and adding result as children of current Var
         '''
-        checkerr(isinstance(other, (Var, int, float)), "Var subtraction has to be applied onto other Vars or int/floats")
+        checkerr(isinstance(other, (Var, int, float, np.ndarray)), "Var subtraction has to be applied onto other Vars or int/floats")
 
-        if isinstance(other, (int, float)):
+        if isinstance(other, (int, float, np.ndarray)):
+            if isinstance(self.value, np.ndarray) and isinstance(other, np.ndarray):
+                checkerr(self.value.shape == other.shape, "numpy array operations require array shape to be identical")
             z = Var(self.value - other)
             self.children.append((1., z))
             return z
 
-        z = Var(self.value - other.value)
+        if isinstance(self.value, np.ndarray) and isinstance(other.value, np.ndarray):
+            checkerr(self.value.shape == other.value.shape, "numpy array operations require array shape to be identical")
+
+        z = Var(self.value - other.value) # this should work for np.ndarray also
         self.children.append((1., z))
         other.children.append((-1., z))
         
@@ -126,13 +143,18 @@ class Var(object):
         Var reverse subtraction: applying chain rule and adding result as children of current Var
         Technically, for reverse implementation I will only need float, since Var - Var will call __sub__
         '''
-        checkerr(isinstance(other, (Var, int, float)), "Var subtraction has to be applied onto other Vars or floats")
+        checkerr(isinstance(other, (Var, int, float, np.ndarray)), "Var subtraction has to be applied onto other Vars or floats")
 
-        if isinstance(other, (int, float)):
+        if isinstance(other, (int, float, np.ndarray)):
+            if isinstance(self.value, np.ndarray) and isinstance(other, np.ndarray):
+                checkerr(self.value.shape == other.shape, "numpy array operations require array shape to be identical")
             z = Var(other - self.value)
             self.children.append((-1., z))
             return z
 
+        if isinstance(self.value, np.ndarray) and isinstance(other.value, np.ndarray):
+            checkerr(self.value.shape == other.value.shape, "numpy array operations require array shape to be identical")
+        
         z = Var(other.value - self.value)
         self.children.append((-1., z))
         other.children.append((1., z))
@@ -143,13 +165,17 @@ class Var(object):
         '''
         Var divide uses product rule and pow of -1 instead of quotient rule (same thing tho)
         '''
-        checkerr(isinstance(other, (Var, int, float)), "Var divide has to be applied onto other Vars or floats")
+        checkerr(isinstance(other, (Var, int, float, np.ndarray)), "Var divide has to be applied onto other Vars or floats")
 
-        if isinstance(other, (int, float)):
+        if isinstance(other, (int, float, np.ndarray)):
+            if isinstance(self.value, np.ndarray) and isinstance(other, np.ndarray):
+                checkerr(self.value.shape == other.shape, "numpy array operations require array shape to be identical")
+
             z = Var(self.value / other)
             self.children.append((1/other, z))
             return z
 
+        # np array checks for pow will be done in pow
         return self * pow(other,-1)
 
     def __rtruediv__(self, other):
@@ -157,7 +183,7 @@ class Var(object):
         Var divide uses product rule and pow of -1 instead of quotient rule (same thing tho)
         Technically, for reverse implementation I will only need float, since Var - Var will call __div__
         '''
-        checkerr(isinstance(other, (Var, int, float)), "Var divide has to be applied onto other Vars or floats")
+        checkerr(isinstance(other, (Var, int, float, np.ndarray)), "Var divide has to be applied onto other Vars or floats")
 
         # if isinstance(other,int) or isinstance(other, float):
         #     z = Var(other / self.value)
@@ -214,25 +240,37 @@ def vmul(x, y, order=Var.order):
     '''
     Var multiplication: applying product rule by taking the other value and implementing as coefficient
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var multiplication has to be applied onto other Vars or int/floats")
-    checkerr(isinstance(y, (Var, int, float)), "Var multiplication has to be applied onto other Vars or int/floats")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var multiplication has to be applied onto other Vars or int/floats")
+    checkerr(isinstance(y, (Var, int, float, np.ndarray)), "Var multiplication has to be applied onto other Vars or int/floats")
     # Case both not Var
     if not (isinstance(x, Var) or isinstance(y, Var)):
         return x * y
     # Case only x is Var
-    if isinstance(y, (int, float)):
+    if isinstance(y, (int, float, np.ndarray)):
+        if isinstance(y, np.ndarray) and isinstance(x, np.ndarray):
+            checkerr(x.value.shape == y.shape, "numpy array operations require array shape to be identical")
+
         z = Var(x.value * y)
         x.children.append((y, z))
         return z
-    # Case only y is Var (this shouldn't happen)
-    if isinstance(x, (int, float)):
+
+    # Case only y is Var
+    if isinstance(x, (int, float, np.ndarray)):
+        if isinstance(x, np.ndarray) and isinstance(y, np.ndarray):
+            checkerr(y.value.shape == x.shape, "numpy array operations require array shape to be identical")
+
         z = Var(x * y.value)
         y.children.append((x, z))
         return z
+
     # Case both x and y is Var
+    if isinstance(x.value, np.ndarray) and isinstance(y.value, np.ndarray):
+        checkerr(x.value.shape == y.value.shape, "numpy array operations require array shape to be identical")
+
     xv = x if order > 1 else x.value
     yv = y if order > 1 else y.value
     z = Var(x.value * y.value)
+
     x.children.append((yv, z))
     y.children.append((xv, z))
     return z
@@ -241,12 +279,17 @@ def sin(x, order=Var.order): # Var.order default is 1
     '''
     sin for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var sin function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var sin function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.sin(x)
+    if isinstance(x, np.ndarray): return np.sin(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.sin(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.sin(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.sin(x.value)
+
+    z = Var(zval)
     x.children.append((cos(xv, order=order-1), z))
     return z
 
@@ -254,12 +297,17 @@ def cos(x, order=Var.order):
     '''
     cos for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var cos function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var cos function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.cos(x)
+    if isinstance(x, np.ndarray): return np.cos(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.cos(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.cos(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.cos(x.value)
+
+    z = Var(zval)
     x.children.append((-sin(xv, order=order-1), z))
     return z
 
@@ -267,12 +315,17 @@ def tan(x, order=Var.order):
     '''
     tan for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var tan function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var tan function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.tan(x)
+    if isinstance(x, np.ndarray): return np.tan(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.tan(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.tan(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.tan(x.value)
+
+    z = Var(zval)
     x.children.append((vpow(cos(xv, order=order-1),-2, order=order-1), z))
     return z
 
@@ -280,12 +333,17 @@ def log10(x, order=Var.order):
     '''
     log10 for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var log10 function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var log10 function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.log10(x)
+    if isinstance(x, np.ndarray): return np.log10(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.log10(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.log10(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.log10(x.value)
+
+    z = Var(zval)
     x.children.append((vpow(xv*math.log(10.),-1, order=order-1), z)) # Multiplication here is with a constant, so doesn't matter
     return z
 
@@ -293,12 +351,17 @@ def ln(x, order=Var.order):
     '''
     ln for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var ln function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var ln function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.log(x)
+    if isinstance(x, np.ndarray): return np.log(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.log(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.log(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.log(x.value)
+
+    z = Var(zval)
     x.children.append((vpow(xv,-1, order=order-1), z))
     return z
 
@@ -306,17 +369,22 @@ def log(x, base=None, order=Var.order):
     '''
     log for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var log function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var log function has to be applied onto Vars/ints/floats only")
     checkerr(base is None or isinstance(base, (int, float)), "Var log function base has to be float or int (implementation of Var is not available yet)")
 
     if isinstance(x, (int, float)): return math.log(x) if base is None else math.log(x,base)
+    if isinstance(x, np.ndarray): return np.log(x) if base is None else (np.log(x) / math.log(base))
 
     # Natural log or ln
     if base is None:
         return ln(x, order=order)
 
     xv = x if order > 1 else x.value
-    z = Var(math.log(x.value, base))
+
+    if isinstance(x.value, (int, float)): zval = math.log(x.value, base)
+    if isinstance(x.value, np.ndarray): zval = np.log(x.value) / math.log(base)
+
+    z = Var(zval)
     x.children.append((vpow(xv*math.log(base), -1, order=order-1), z))
     return z
 
@@ -324,12 +392,17 @@ def sqrt(x, order=Var.order):
     '''
     sqrt for Var objects only
     '''
-    checkerr(isinstance(x, (Var, int, float)), "Var sqrt function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var sqrt function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.sqrt(x)
+    if isinstance(x, np.ndarray): return np.sqrt(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.sqrt(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.sqrt(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.sqrt(x.value)
+
+    z = Var(zval)
     x.children.append((0.5*vpow(xv, -0.5, order=order-1), z))
     return z
 
@@ -337,9 +410,9 @@ def vpow(x, y, order=Var.order):
     ''' 
     pow for Var and int/float for polynomials, and also for Var and Var for power functions
     '''
-    checkerr(isinstance(y, (Var, int, float)),
+    checkerr(isinstance(y, (Var, int, float, np.ndarray)),
         "Object of pow function has to be Var object or int or float")
-    checkerr(isinstance(x, (Var, int, float)),
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)),
         "Subject of pow function has to be Var object or int or float")
     if order > 1:
         xv = x
@@ -349,35 +422,49 @@ def vpow(x, y, order=Var.order):
         yv = y.value if isinstance(y, Var) else y
     # Case if both is int/float
     if not (isinstance(y, Var) or isinstance(x, Var)):
-        return math.pow(x,y)
+        return pow(x,y) # this should work for np.ndarray too
     # Case x is Var, y is int/float
-    if isinstance(y, (int, float)):
-        if y == 0 or y == 0.:
+    if isinstance(y, (int, float, np.ndarray)):
+        if (not isinstance(y, np.ndarray)) and (y == 0 or y == 0.):
+            # what happens if np.ndarray has to power of 0?
             return Var(1.)
-        z = Var(math.pow(x.value, y))
-        x.children.append((y*vpow(xv, y-1, order=order-1),z))
+        if isinstance(x.value, np.ndarray) and isinstance(y, np.ndarray):
+            checkerr(x.value.shape == y.shape, "numpy array operations require array shape to be identical")
+        z = Var(pow(x.value, y))
+        x.children.append((vpow(xv, y-1, order=order-1)*y,z)) # Var * np.ndarray calls vmul, but np.ndarray * Var calls np implementation <-- avoid. 
+                                                              # Because it doesn't recognise so it tries to iterate instead
         return z
     # Case y is Var, x is int/float
-    if isinstance(x, (int, float)):
-        z = Var(math.pow(x, y.value))
-        y.children.append((math.log(x)*vpow(x, yv, order=order-1), z))
+    if isinstance(x, (int, float, np.ndarray)):
+        if isinstance(x, np.ndarray) and isinstance(y.value, np.ndarray):
+            checkerr(x.shape == y.value.shape, "numpy array operations require array shape to be identical")
+        z = Var(pow(x, y.value))
+        xlog = np.log(x) if isinstance(x, np.ndarray) else math.log(x)
+        y.children.append((vpow(x, yv, order=order-1)*xlog, z))
         return z
     # Case both is Var
     if y.value == 0 or y.value == 0.:
         return Var(1.)
-    z = Var(math.pow(x.value, y.value))
+    if isinstance(x.value, np.ndarray) and isinstance(y.value, np.ndarray):
+        checkerr(x.value.shape == y.value.shape, "numpy array operations require array shape to be identical")
+    z = Var(pow(x.value, y.value))
     x.children.append((vmul(yv,vpow(xv, yv-1, order=order-1), order=order-1), z)) # Here multiplication has to use vmul to pull in the order
     y.children.append((vmul(ln(xv, order=order-1),vpow(xv, yv, order=order-1), order=order-1), z))
 
     return z
 
 def exp(x, order=Var.order):
-    checkerr(isinstance(x, (Var, int, float)), "Var exp function has to be applied onto Vars/ints/floats only")
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var exp function has to be applied onto Vars/ints/floats only")
     
     if isinstance(x, (int, float)): return math.exp(x)
+    if isinstance(x, np.ndarray): return np.exp(x)
 
     xv = x if order > 1 else x.value
-    z = Var(math.exp(x.value))
+
+    if isinstance(x.value, (int, float)): zval = math.exp(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.exp(x.value)
+
+    z = Var(zval)
     x.children.append((exp(xv, order=order-1), z))
 
     return z
@@ -502,6 +589,7 @@ def mulfunc(x):
     y[3] = exp(-(x[0]+2*x[1]-x[2])**2) /(1 - (x[0] + x[1] + x[2]))
 
     return y
+
 def mulfunc_d(x):
     assert(len(x) == 3)
     dy = [0] * 4
@@ -516,53 +604,79 @@ def mulfunc_d(x):
     return dy
 
 def main():
-    print('sin test')
-    Var.set_order(3)
-    x = Var(0.71)
-    y = Var(2)
-    z = 1/x
-    print(derivative(z,x,order=3))
-    x = 0.71
-    print((-1/x**2, 2/x**3, -6/x**4))
+    print('{:18s}'.format("Testing numpy var..."))
+    print('='*18)
+    Var.set_order(2)
+    a = np.array([0.21, 0.63, 1.56])
+    a_ = Var(a)
+    print(a_ * 2.)
+    a1 = a_ * np.ones(a.shape)
+    print(a1, a_.children)
+    b = np.array([1., 2., 0.5])
+    print(a_ * b)
+    print(a_ / b)
+    b_ = Var(b)
+    pwr = np.array([1,2,3])
+    test = 6.1 * b_** pwr - 5 * sin(0.325 * a_**3) - exp(-a_**2 * b_**0.5)
+    test.set_subject()
+    der = derivative(test,a_, b_,order=2)
+    print('{:18s}'.format("First a_ derivatives: "), der[0][0])
+    print('{:18s}'.format("First a_ der actual: "), - 5 * 0.325 * 3 * a**2 * cos(0.325*a**3) + 2 * a * b**0.5 * exp(-a**2 * b**0.5))
+    print('{:18s}'.format("Second a_ derivatives: "), der[1][0])
+    print('{:18s}'.format("Second a_ der actual: "), 5 * (0.325 * 3 * a**2)**2 * sin(0.325*a**3) - 5 * 0.325 * 3 * 2 * a * cos(0.325*a**3) - (2 * a * b**0.5)**2 * exp(-a**2 * b**0.5) + 2 * b**0.5 * exp(-a**2 * b**0.5))
+    print()
+    print('{:18s}'.format("First b_ derivatives: "), der[0][1])
+    print('{:18s}'.format("First b_ der actual: "), 6.1 * pwr * b**(pwr-1) + 0.5*b**(-0.5) * a**2 * exp(-a**2 * b**0.5))
+    print('{:18s}'.format("Second b_ derivatives: "), der[1][2])
+    print('{:18s}'.format("Second b_ der actual: "), 6.1 * pwr * (pwr-1) * b**(pwr-2) - (0.5*b**(-0.5) * a**2)**2 * exp(-a**2 * b**0.5) - 0.5 * 0.5*b**(-1.5) * a**2 * exp(-a**2 * b**0.5))
+    print()
+    print('{:18s}'.format("Second dab_ derivatives: "), der[1][1])
+    print('{:18s}'.format("Second dab_ der actual: "), - a**3 * exp(-a**2 * b**0.5) + a * b**(-0.5) * exp(-a**2 * b**0.5))
+    print('='*18)
 
-    x=Var(0.71)
-    z2 = x**3.1
-    print(derivative(z2, x, order=3))
-    x = 0.71
-    print(3.1*x**2.1, 3.1*2.1*x**1.1, 3.1*2.1*1.1*x**0.1)
+    # print('sin test')
+    # Var.set_order(3)
+    # x = Var(0.71)
+    # y = Var(2)
+    # z = 1/x
+    # print(derivative(z,x,order=3))
+    # x = 0.71
+    # print((-1/x**2, 2/x**3, -6/x**4))
 
-    x=Var(0.71)
-    z2 = sin(x)
-    z2.set_subject()
-    dx = x.grad(getvar=True, order=3)
-    x.reset()
-    print(z2.grad_val)
-    dx.set_subject()
-    dx2 = x.grad(getvar=True, order=2)
-    x.reset()
-    dx2.set_subject()
-    dx3 = x.grad(getvar=False, order=1)
-    print(dx.value, dx2.value, dx3)
+    # x=Var(0.71)
+    # z2 = x**3.1
+    # print(derivative(z2, x, order=3))
+    # x = 0.71
+    # print(3.1*x**2.1, 3.1*2.1*x**1.1, 3.1*2.1*1.1*x**0.1)
 
-    x = Var(0.71)
-    z2 = sin(x)
-    print(x.children)
-    print(derivative(z2, x, order=3))
+    # x=Var(0.71)
+    # z2 = sin(x)
+    # z2.set_subject()
+    # dx = x.grad(getvar=True, order=3)
+    # x.reset()
+    # print(z2.grad_val)
+    # dx.set_subject()
+    # dx2 = x.grad(getvar=True, order=2)
+    # x.reset()
+    # dx2.set_subject()
+    # dx3 = x.grad(getvar=False, order=1)
+    # print(dx.value, dx2.value, dx3)
 
-    t = Var(1.321)
-    y = t**0
-    y.set_subject()
-    print('test 0', derivative(y, t, order=2))
-    x = 0.71
-    print(cos(x), -sin(x), -cos(x))
-    fx = lambda x: exp(-sin(x) / x**2) - 1
-    print(jacobian(fx, 12), -(cos(12)/12**2 - 2*sin(12)/12**3)*exp(-sin(12)/12**2))
-    xL = jacobian(mulfunc, [0.31, 0.12, 0.74])
-    dyL = mulfunc_d([0.31, 0.12, 0.74])
-    for L in xL: 
-        print(L)
-    for L in dyL:
-        print(L)
+    # x = Var(0.71)
+    # z2 = sin(x)
+    # print(x.children)
+    # print(derivative(z2, x, order=3))
+
+    # x = 0.71
+    # print(cos(x), -sin(x), -cos(x))
+    # fx = lambda x: exp(-sin(x) / x**2) - 1
+    # print(jacobian(fx, 12), -(cos(12)/12**2 - 2*sin(12)/12**3)*exp(-sin(12)/12**2))
+    # xL = jacobian(mulfunc, [0.31, 0.12, 0.74])
+    # dyL = mulfunc_d([0.31, 0.12, 0.74])
+    # for L in xL: 
+    #     print(L)
+    # for L in dyL:
+    #     print(L)
     # zs = np.zeros(100)
     # dz = np.zeros(100)
     # d2z = np.zeros(100)
