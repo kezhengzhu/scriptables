@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt 
 
-from dervar import *
+from dervarnp import *
 import defconst as cst
 
 def checkerr(cond, message):

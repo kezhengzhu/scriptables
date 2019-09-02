@@ -5,7 +5,7 @@ from math import pi,tanh
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve, least_squares
 
-from dervar import *
+from dervarnp import *
 
 import defconst as cst
 import methods as mt 
@@ -317,7 +317,7 @@ class System(object):
 
         return varr if get_density == False else (varr, 1./varr)
 
-    def critical_point(self, initial_t=300, initial_v=3e-4, v_nd=None, get_volume=False, get_density=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': (0.1,10)}, xtol=1e-8, print_progress=False):
+    def critical_point(self, initial_t=300, v_nd=None, get_volume=False, get_density=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': (0.1,10)}, xtol=1e-8, print_progress=False):
         tscale = initial_t
         x0 = np.array([1.])
         if not isinstance(solver_kwargs, dict): solver_kwargs = {}
@@ -329,7 +329,9 @@ class System(object):
         if print_results: print(crit_pt)
         T = crit_pt.x[0]*tscale
 
-        crit_v = solver(self.__crit_v, np.array([initial_v]), xtol=xtol, args=(T,), bounds=(min(v_nd), max(v_nd)))
+        parr = self.__crit_t(np.array([T]), v_nd, 1, False, True)
+        v_guess = v_nd[parr==max(parr)]
+        crit_v = solver(self.__crit_v, v_guess, xtol=xtol, args=(T,), bounds=(min(v_nd), max(v_nd)))
         v = crit_v.x[0]
         
         Var.set_order(1)
@@ -356,19 +358,27 @@ class System(object):
 
         return dpdv
 
-    def __crit_t(self, x, v_nd, scale, print_):
+    def __crit_t(self, x, v_nd, scale, print_, getarr=False):
         T = x[0] * scale
-        dp = np.zeros(np.size(v_nd))
-        for i in range(len(v_nd)):
-            v = v_nd[i]
-            self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
-            self.temp = T
-            A = self.helmholtz()
-            _, dpdv = derivative(A, self.volume, order=2)
-            dp[i] = -dpdv / (pow(cst.nmtom,6) * cst.Na) / (cst.R * T)
+
+        # dp = np.zeros(np.size(v_nd))
+        # for i in range(len(v_nd)):
+        #     v = v_nd[i]
+        #     self.volume = Var(mt.m3mol_to_nm(v, molecules=self.__moltol()))
+        #     self.temp = T
+        #     A = self.helmholtz()
+        #     _, dpdv = derivative(A, self.volume, order=2)
+        #     dp[i] = -dpdv / (pow(cst.nmtom,6) * cst.Na) / (cst.R * T)
+
+        # numpy version
+        self.volume = Var(mt.m3mol_to_nm(v_nd, molecules=self.__moltol()))
+        self.temp = T
+        A = self.helmholtz()
+        _,dpdv = derivative(A, self.volume, order=2)
+        dp = -dpdv / (pow(cst.nmtom,6) * cst.Na) / (cst.R * T)
         if print_: 
             print(f'Current: T = {T:7.3f}: max dP/dV = {max(dp):7.3e}', end='\r')
-        return max(dp)
+        return max(dp) if getarr == False else dp
 
     def __critpt(self, x, print_, scale):
         '''
@@ -392,6 +402,7 @@ class System(object):
         return dP
 
     def get_critical_point(self, initial_guess=(3e-4, 300), get_volume=False, get_density=False, print_results=True, solver=least_squares, solver_kwargs={'bounds': ((1e-1,1e-1), (10,10))}, xtol=1e-8, print_progress=False):
+        print("This critical point version is slower, uses original criteria of d2 == d3. Use .critical_point method for faster convergence")
         scaler = initial_guess
         x0 = np.array([1.,1.])
         if not isinstance(solver_kwargs, dict): solver_kwargs = {}
@@ -1260,8 +1271,8 @@ def main():
 
     print('Testing locating critical point')
     vnd = np.logspace(-5,-2, 70)
-    # Pc, Tc, vc = s.critical_point(initial_t=600., initial_v=5e-5, v_nd=vnd, print_progress=True, get_volume=True)
-    Pc, Tc, vc = (348.13847810761837 * 1e5, 667.5455878098154, 5.457006625794028e-05)
+    Pc, Tc, vc = s.critical_point(initial_t=600., v_nd=vnd, print_progress=True, get_volume=True)
+    # Pc, Tc, vc = (348.13847810761837 * 1e5, 667.5455878098154, 5.457006625794028e-05)
     print('{:18s}'.format('P_crit (bar):'), Pc*cst.patobar)
     print('{:18s}'.format('T_crit (K):'), Tc)
     print('{:18s}'.format('V_crit (m3/mol):'), vc)
