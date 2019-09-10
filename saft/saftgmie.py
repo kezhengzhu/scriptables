@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np 
 import pandas as pd 
-from math import pi,tanh
+from math import pi,tanh,log10
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve, least_squares
 
@@ -431,7 +431,7 @@ class System(object):
 
     def a_ideal(self):
         result = 0.
-        mole_tol = sum(self.moles.values())
+        mole_tol = self.__moltol()
         for comp in self.comps:
             debrogv = pow(self.comps[comp].thdebroglie(self.temp),3)
             molfrac = self.molfrac[comp]
@@ -444,7 +444,7 @@ class System(object):
 
     def a_chain(self):
         result = 0.
-        mole_tol = sum(self.moles.values())
+        mole_tol = self.__moltol()
         for comp in self.comps:
             molfrac = self.molfrac[comp]
             c_cont = 0.
@@ -1069,8 +1069,8 @@ class Component(object):
         Takes in component mass (au) and temperature (K) and return thermal de broglie wavelength
         '''
         Lambda_sq = pow(cst.h,2) * 1e3 * cst.Na / (2 * pi * self.mass * cst.k * temp)
-        # return sqrt(Lambda_sq)
-        return cst.h / sqrt(2 * pi * cst.mass_e * cst.k * temp)
+        return sqrt(Lambda_sq)
+        # return cst.h / sqrt(2 * pi * cst.mass_e * cst.k * temp)
 
     def get_gtypeii(self):
         sig = 0.
@@ -1087,7 +1087,7 @@ class Component(object):
                 rep += zki * zli * (g1+g2).rep
                 att += zki * zli * (g1+g2).att
 
-        g = GroupType(rep, att, sig, epi, shape_factor=None, id_seg=None)
+        g = GroupType(rep, att, sig, epi, shape_factor=None, id_seg=None, comb=True)
         return g
 
     def __gshape(self, gtype):
@@ -1129,14 +1129,61 @@ class AssocSite(object):
 
 
 class GroupType(object):
-    def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=1, id_seg=1):
+    _table = np.array([[0.]])
+    _total = 0
+    def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=1, id_seg=1, comb=False):
         self.rep = lambda_r
         self.att = lambda_a
         self.sigma = sigma # units nm
         self.epsilon = epsilon # units K input, divided by cst.k (epsi / k), so multiply k here
         self.sk = shape_factor # dimensionless segments
         self.vk = id_seg # identical segments in a group
+        if comb == False:
+            self.index = GroupType._total
+            GroupType._total += 1
+            GroupType.add_elem()
 
+    @classmethod
+    def add_elem(cls):
+        t = cls._table
+        if cls._total > 1:
+            t2 = np.append(t, np.zeros((1, t.shape[1])), axis=0)
+            cls._table = np.append(t2, np.zeros((t2.shape[0], 1)), axis=1)
+
+
+    @classmethod
+    def print_table(cls):
+        print("Total GroupTypes: ", cls._total)
+        print(cls._table)
+
+    @classmethod
+    def combining_e_kij(cls, g1, g2, val):
+        try:
+            i1 = g1.index
+            i2 = g2.index
+        except:
+            raise Exception("Index not available. Do not set combination rules for group combinations")
+        cls._table[i1,i2] = val
+        cls._table[i2,i1] = val
+
+    @classmethod
+    def combining_e_val(cls, g1, g2, val):
+        try:
+            i1 = g1.index
+            i2 = g2.index
+        except:
+            raise Exception("Index not available. Do not set combination rules for group combinations")
+        s1 = g1.sigma
+        s2 = g2.sigma
+        e1 = g1.epsilon
+        e2 = g2.epsilon
+
+        actl = sqrt(pow(s1,3) * pow(s2,3)) / pow((s1+s2)/2, 3) * sqrt(e1 * e2)
+        ratio = val / actl
+        kij = 1 - ratio
+        cls._table[i1,i2] = kij
+        cls._table[i2,i1] = kij
+    
     def __repr__(self):
         return '<GroupType({:4.3f} nm, {:4.3f} K, rep={:5.3f}, att={:5.3f})>'.format(self.sigma, self.epsilon, self.rep, self.att)
 
@@ -1146,10 +1193,12 @@ class GroupType(object):
     def __add__(self, other):
         sig = (self.sigma + other.sigma) / 2
         epsi = sqrt(pow(self.sigma, 3) * pow(other.sigma, 3)) / pow(sig,3) * sqrt(self.epsilon * other.epsilon)
+        ratio = 1 - GroupType._table[self.index, other.index]
+        epsi = ratio*epsi
         rep = 3 + sqrt( (self.rep - 3) * (other.rep - 3) )
         att = 3 + sqrt( (self.att - 3) * (other.att - 3) )
 
-        return GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None)
+        return GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None, comb=True)
 
     def premie(self):
         return self.rep/(self.rep-self.att) * pow(self.rep/self.att, self.att/(self.rep-self.att))
@@ -1207,6 +1256,10 @@ def main():
     to = GroupType(11.79626055, 6., 0.368461, 268.2422859)
     toluene = Component(92.14)
     toluene.quick_set((to,3))
+
+    pr = GroupType(34.29, 6., 0.4871, 426.08, shape_factor=1., id_seg=1)
+    propane = Component(44.097)
+    propane.quick_set((pr,1))
 
     hexane = Component(86.1754)
     hexane.quick_set((c6h,2)) 
@@ -1277,7 +1330,54 @@ def main():
     print('{:18s}'.format('T_crit (K):'), Tc)
     print('{:18s}'.format('V_crit (m3/mol):'), vc)
     print('{:18s}'.format('rho_crit (mol/m3):'), 1/vc)
+    # print('=====================')
+    # s2 = System()
+    # s2.quick_set((propane,1000))
+    # vnd = np.logspace(-4,-1, 70)
+    # Pc, Tc, vc = s2.critical_point(initial_t=300., v_nd=vnd, print_progress=True, get_volume=True)
+    # print('{:18s}'.format('P_crit (bar):'), Pc*cst.patobar)
+    # print('{:18s}'.format('T_crit (K):'), Tc)
+    # print('{:18s}'.format('V_crit (m3/mol):'), vc)
+    # print('{:18s}'.format('rho_crit (mol/m3):'), 1/vc)
+    # print('VLE data for propane', '='*10)
 
+    # t_data = np.array([])
+    # p_data = np.array([])
+    # rhol = np.array([])
+    # rhog = np.array([])
+    # vl_data = np.array([])
+    # vv_data = np.array([])
+    # temp_range = np.linspace(Tc*0.45, Tc*0.995, 30) # for 30 points
+    # for j in range(len(temp_range)):
+    #     t = temp_range[j]
+    #     try: 
+    #         if j == 0:
+    #             ig = (0.25*vc,100*vc)
+    #             # ig = (0.4 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200., 50 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.)
+    #         else:
+    #             ig = vle
+    #         pv, vle = s2.vapour_pressure(t, initial_guess=ig, get_volume=True, print_results=False)
+    #         if abs(vle[0] - vle[1]) < 1e-6:
+    #             print(f'VLE points solver failed to converge at meaningful results at T={t:5.2f}, points too similar ({vle[0]:7.3e}, {vle[1]:7.3e})')
+    #             vle = ig
+    #         else:
+    #             t_data = np.append(t_data, t)
+    #             p_data = np.append(p_data, pv * cst.patobar)
+    #             vl_data = np.append(vl_data, min(vle))
+    #             vv_data = np.append(vv_data, max(vle))
+    #             rhol = np.append(rhol, 1/min(vle))
+    #             rhog = np.append(rhog, 1/max(vle))
+    #             print(f'Getting VLE at P = {pv*cst.patobar:5.2f} bar, T = {t:5.2f} K, v_l = {min(vle):7.3e}, v_v = {max(vle):7.3e}')
+    #     except:
+    #         print('VLE solver failed at T={t:5.2f} due to out of range operations. Current point aborted.')
+
+    # df = pd.DataFrame(np.column_stack([t_data, p_data, vl_data, vv_data, rhol, rhog]))
+    # outputfile = 'saftvrm-propane-vle.csv'
+    # df.to_csv(outputfile, index=False, header=['T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
+    # print()
+    # print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+
+    # print('=====================')
     testgp = s._System__getp([0.033], 400)
     print('{:18s}'.format('Testing __getp:'), testgp)
     testdgp_1 = s._System__getp([0.033+1e-9], 400) - testgp
@@ -1289,13 +1389,105 @@ def main():
 
     print('=====================')
 
-    ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
-    vget = s.single_phase_v(1e5, 300, vle_ig=ig, print_results=False)
-    print('{:18s}'.format('Finding Pvap with least_sq:'), vget)
-    vget = s.sp_v_test(1e5, 400, vle_ig=ig, print_results=False)
-    print('{:18s}'.format('Finding Pvap with fsolve:'), vget)
-    vget = s.sp_v_test(1e5, 400, use_jac=True, vle_ig=ig, print_results=False)
-    print('{:18s}'.format('Finding Pvap with fsolve+jac:'), vget)
+    print('Testing SAFT-g-Mie GC')
+    CH3 = GroupType(15.04982, 6., 0.4077257, 256.7662, shape_factor=0.5725512, id_seg=1)
+    CH2 = GroupType(19.87107, 6., 0.4880081, 473.3893, shape_factor=0.2293202, id_seg=1)
+    COO = GroupType(31.189, 6., 0.39939, 868.92, shape_factor=0.65264, id_seg=1)
+    GroupType.combining_e_val(CH3, CH2, 350.772)
+    GroupType.combining_e_val(CH3, COO, 402.75)
+    GroupType.combining_e_val(COO, CH2, 498.86)
+    GroupType.print_table()
+    comps = {}
+    puresys = {}
+    for i in range(2,11):
+        key = 'C' + str(i)
+        comps[key] = Component(i * 12.0107 + (i*2+2) * 1.00784)
+        if i == 2:
+            comps[key].quick_set((CH3, 2))
+        else:
+            comps[key].quick_set((CH3, 2), (CH2, i-2))
+        puresys[key] = System().quick_set((comps[key], 1000))
+
+    # pc_data = np.array([])
+    # tc_data = np.array([])
+    # rhoc_data = np.array([])
+    # for i in range(2,11):
+    #     key = 'C' + str(i)
+    #     t_init = (i+1)**0.7 * 256.77 * 0.40772
+    #     v_init =  (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.
+    #     v_range = np.logspace(math.log10(v_init/2), math.log10(v_init*2), 30)
+    #     (pc, tc, rhoc) = puresys[key].critical_point(initial_t=t_init, v_nd=v_range, get_volume=False, get_density=True, print_results=False, print_progress=False)
+    #     pc_data = np.append(pc_data, pc*cst.patobar)
+    #     tc_data = np.append(tc_data, tc)
+    #     rhoc_data = np.append(rhoc_data, rhoc)
+    #     print('Critical point: pressure = {:6.3f} bar, temperature = {:6.3f} K, density = {:6.3f} kg/m3'.format(pc*cst.patobar, tc, rhoc))
+
+    # df = pd.DataFrame(np.column_stack([pc_data, tc_data, rhoc_data]))
+    # outputfile = 'saftgmie-alkane-crit.csv'
+    # df.to_csv(outputfile, index=False, header=['p_c (bar)', 't_c (K)', 'rho_c (mol/m3)'])
+    # print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+
+    inputfile = 'saftgmie-alkane-crit.csv'
+    df = pd.read_csv(inputfile)
+
+    pc_data = df.iloc[:,0].values
+    tc_data = df.iloc[:,1].values
+    rhoc_data = df.iloc[:,2].values
+
+    carbon = np.array([])
+    t_data = np.array([])
+    p_data = np.array([])
+    rhol = np.array([])
+    rhog = np.array([])
+    vl_data = np.array([])
+    vv_data = np.array([])
+    for i in range(2,11):
+        key = 'C' + str(i)
+        print('VLE data for {:3s} alkane'.format(key), '='*10)
+        temp_range = np.linspace(tc_data[i-2]* 0.45, tc_data[i-2] * 0.995, 30) # for 30 points
+        for j in range(len(temp_range)):
+            t = temp_range[j]
+            try: 
+                if j == 0:
+                    ig = (0.25/rhoc_data[i-2],100/rhoc_data[i-2])
+                    # ig = (0.4 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200., 50 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.)
+                else:
+                    ig = vle
+                pv, vle = puresys[key].vapour_pressure(t, initial_guess=ig, get_volume=True, print_results=False)
+                if abs(vle[0] - vle[1]) < 1e-6:
+                    print(f'VLE points solver failed to converge at meaningful results at T={t:5.2f}, points too similar ({vle[0]:7.3e}, {vle[1]:7.3e})')
+                    vle = ig
+                else:
+                    carbon = np.append(carbon, i)
+                    t_data = np.append(t_data, t)
+                    p_data = np.append(p_data, pv * cst.patobar)
+                    vl_data = np.append(vl_data, min(vle))
+                    vv_data = np.append(vv_data, max(vle))
+                    rhol = np.append(rhol, 1/min(vle))
+                    rhog = np.append(rhog, 1/max(vle))
+                    print(f'Getting VLE at P = {pv*cst.patobar:5.2f} bar, T = {t:5.2f} K, v_l = {min(vle):7.3e}, v_v = {max(vle):7.3e}')
+            except:
+                print('VLE solver failed at T={t:5.2f} due to out of range operations. Current point aborted.')
+        carbon = np.append(carbon, i)
+        t_data = np.append(t_data, tc_data[i-2])
+        p_data = np.append(p_data, pc_data[i-2])
+        vl_data = np.append(vl_data, 1/rhoc_data[i-2])
+        vv_data = np.append(vv_data, 1/rhoc_data[i-2])
+        rhol = np.append(rhol, rhoc_data[i-2])
+        rhog = np.append(rhog, rhoc_data[i-2])
+
+    df = pd.DataFrame(np.column_stack([carbon, t_data, p_data, vl_data, vv_data, rhol, rhog]))
+    outputfile = 'saftgm-gc-alkanes-vle.csv'
+    df.to_csv(outputfile, index=False, header=['Carbons', 'T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
+    print()
+    print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+    # ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
+    # vget = s.single_phase_v(1e5, 300, vle_ig=ig, print_results=False)
+    # print('{:18s}'.format('Finding v(P,T) with least_sq:'), vget)
+    # vget = s.sp_v_test(1e5, 400, vle_ig=ig, print_results=False)
+    # print('{:18s}'.format('Finding v(P,T) with fsolve:'), vget)
+    # vget = s.sp_v_test(1e5, 400, use_jac=True, vle_ig=ig, print_results=False)
+    # print('{:18s}'.format('Finding v(P,T) with fsolve+jac:'), vget)
     '''
     t_data = np.array([])
     p_data = np.array([])

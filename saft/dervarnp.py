@@ -81,6 +81,8 @@ class Var(object):
         vmul.__defaults__ = (order,)
         sin.__defaults__ = (order,)
         cos.__defaults__ = (order,)
+        sinh.__defaults__ = (order,)
+        cosh.__defaults__ = (order,)
         tan.__defaults__ = (order,)
         log10.__defaults__ = (order,)
         ln.__defaults__ = (order,)
@@ -309,6 +311,42 @@ def cos(x, order=Var.order):
 
     z = Var(zval)
     x.children.append((-sin(xv, order=order-1), z))
+    return z
+
+def sinh(x, order=Var.order): # Var.order default is 1
+    '''
+    sinh for Var objects only
+    '''
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var sin function has to be applied onto Vars/ints/floats only")
+    
+    if isinstance(x, (int, float)): return math.sinh(x)
+    if isinstance(x, np.ndarray): return np.sinh(x)
+
+    xv = x if order > 1 else x.value
+
+    if isinstance(x.value, (int, float)): zval = math.sinh(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.sinh(x.value)
+
+    z = Var(zval)
+    x.children.append((cosh(xv, order=order-1), z))
+    return z
+
+def cosh(x, order=Var.order):
+    '''
+    cos for Var objects only
+    '''
+    checkerr(isinstance(x, (Var, int, float, np.ndarray)), "Var cos function has to be applied onto Vars/ints/floats only")
+    
+    if isinstance(x, (int, float)): return math.cosh(x)
+    if isinstance(x, np.ndarray): return np.cosh(x)
+
+    xv = x if order > 1 else x.value
+
+    if isinstance(x.value, (int, float)): zval = math.cosh(x.value)
+    if isinstance(x.value, np.ndarray): zval = np.cosh(x.value)
+
+    z = Var(zval)
+    x.children.append((sinh(xv, order=order-1), z))
     return z
 
 def tan(x, order=Var.order):
