@@ -32,6 +32,18 @@ class fvar(object):
 
         return z
 
+    def __rsub__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            z = fvar(other - self.value)
+            z.grad = -self.grad
+
+            return z
+
+        z = fvar(other.value - self.value)
+        z.grad = other.grad - self.grad
+
+        return z
+
     def __mul__(self, other):
         if isinstance(other, int) or isinstance(other, float):
             z = fvar(self.value * other)
@@ -56,6 +68,18 @@ class fvar(object):
 
         return z
 
+    def __neg__(self):
+        z = fvar(-self.value)
+        z.grad = -self.grad
+
+        return z
+
+    def __abs__(self):
+        if self.value < 0:
+            return -self
+        return self
+
+
 def sin(x):
     if isinstance(x, int) or isinstance(x, float):
         return math.sin(x)
@@ -63,6 +87,14 @@ def sin(x):
     z = fvar(math.sin(x.value))
     z.grad = math.cos(x.value) * x.grad
 
+    return z
+
+def exp(x):
+    if isinstance(x, (int, float)):
+        return math.exp(x)
+
+    z = fvar(math.exp(x.value))
+    z.grad = math.exp(x.value) * x.grad
     return z
 
 def main():

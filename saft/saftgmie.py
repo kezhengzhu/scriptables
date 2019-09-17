@@ -498,10 +498,13 @@ class System(object):
         for comp in self.comps:
             molfrac = self.molfrac[comp]
             c_cont = 0
-            for gtype in self.comps[comp].gtypes:
-                if gtype == thistype:
-                    numg_ki = self.comps[comp].gtypes[gtype]
-                    c_cont = c_cont + numg_ki * gtype.vk * gtype.sk
+            if thistype in self.comps[comp].gtypes:
+                numg_ki = self.comps[comp].gtypes[thistype]
+                c_cont = c_cont + numg_ki * thistype.vk * thistype.sk
+            # for gtype in self.comps[comp].gtypes:
+            #     if gtype == thistype:
+            #         numg_ki = self.comps[comp].gtypes[gtype]
+            #         c_cont = c_cont + numg_ki * gtype.vk * gtype.sk
             result = result + molfrac * c_cont
         return result
 
@@ -589,6 +592,8 @@ class System(object):
         # xi3 = self.__xi_m(3) # dimless
         # print('With pure imp:',(4*xi3 - 3*pow(xi3,2))/pow(1-xi3,2))
         # print('This ans but with segden:', 6 * self.__a_hs_xiterm() / (pi* self.__segden()))
+        # supposed to be :self.__cgshapesum() * 6 * xiterm / pi / self.__segden BUT 
+        # segden = nden * cgshapesum so as below:
         return 6 * self.__a_hs_xiterm() / (pi * self.__nden())
     
     def __a_hs_xiterm(self):
@@ -632,13 +637,13 @@ class System(object):
         gtypes = self.getgtypes()
         cgss = self.__cgshapesum()
         for g1 in gtypes:
-            xsk = self.__gshapesum(g1)/cgss
+            xsk = self.__gshapesum(g1)
             for g2 in gtypes:
-                xsl = self.__gshapesum(g2)/cgss
+                xsl = self.__gshapesum(g2)
                 a1kl = self.__a_1kl(g1 + g2)
                 a1sum += xsk * xsl * a1kl 
 
-        result = 1 / (cst.k * self.temp) * cgss * a1sum 
+        result = 1 / (cst.k * self.temp) / cgss * a1sum 
         return result
 
     def __a_1kl(self, gcomb):
@@ -1138,6 +1143,7 @@ class GroupType(object):
         self.epsilon = epsilon # units K input, divided by cst.k (epsi / k), so multiply k here
         self.sk = shape_factor # dimensionless segments
         self.vk = id_seg # identical segments in a group
+        self.children = []
         if comb == False:
             self.index = GroupType._total
             GroupType._total += 1
@@ -1188,6 +1194,11 @@ class GroupType(object):
         return '<GroupType({:4.3f} nm, {:4.3f} K, rep={:5.3f}, att={:5.3f})>'.format(self.sigma, self.epsilon, self.rep, self.att)
 
     def hsdiam(self, si_temp, x_inf=0): # returns in nm
+        if len(self.children) == 2:
+            g1 = self.children[0]
+            g2 = self.children[1]
+            hsd = (g1.hsdiam(si_temp) + g2.hsdiam(si_temp)) / 2
+            return hsd
         return mt.hsdiam(si_temp / self.epsilon, self.rep, self.att, x_inf) * self.sigma
 
     def __add__(self, other):
@@ -1198,7 +1209,10 @@ class GroupType(object):
         rep = 3 + sqrt( (self.rep - 3) * (other.rep - 3) )
         att = 3 + sqrt( (self.att - 3) * (other.att - 3) )
 
-        return GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None, comb=True)
+        z = GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None, comb=True)
+        z.children.append(self)
+        z.children.append(other)
+        return z
 
     def premie(self):
         return self.rep/(self.rep-self.att) * pow(self.rep/self.att, self.att/(self.rep-self.att))
@@ -1269,7 +1283,7 @@ def main():
     testc.quick_set((testg,1))
     s = System()
     # s.quick_set([meth, ljmol], [100, 100])
-    s.quick_set((testc,1000)) 
+    # s.quick_set((testc,1000)) 
     # print(s.comps, s.moles)
     # print(lj.hsdiam(273), ch.hsdiam(273))
 
@@ -1321,10 +1335,26 @@ def main():
     # print()
     # print('='*21)
 
+    CH3 = GroupType(15.04982, 6., 0.4077257, 256.7662, shape_factor=0.5725512, id_seg=1)
+    CH2 = GroupType(19.87107, 6., 0.4880081, 473.3893, shape_factor=0.2293202, id_seg=1)
+    COO = GroupType(31.189, 6., 0.39939, 868.92, shape_factor=0.65264, id_seg=1)
+    CO2 = GroupType(26.408, 5.055, 0.305, 207.891, shape_factor=0.847, id_seg=2)
+    CH = GroupType(8.0, 6.0, 0.5295, 95.621, shape_factor=0.0721, id_seg=1)
+
+    GroupType.combining_e_val(CH3, CH2, 350.77)
+    GroupType.combining_e_val(CH3, COO, 402.75)
+    GroupType.combining_e_val(COO, CH2, 498.86)
+    GroupType.combining_e_val(CH3, CO2, 205.698)
+    GroupType.combining_e_val(CH3, CH, 387.48)
+    GroupType.combining_e_val(CH2, CO2, 276.453)
+    GroupType.combining_e_val(CH2, CH, 506.21)
 
     print('Testing locating critical point')
-    vnd = np.logspace(-5,-2, 70)
-    Pc, Tc, vc = s.critical_point(initial_t=600., v_nd=vnd, print_progress=True, get_volume=True)
+    co2comp = Component(44.01)
+    co2comp.quick_set((CO2,1))
+    s.quick_set((co2comp,1000)) 
+    vnd = np.logspace(-4,-2, 70)
+    Pc, Tc, vc = s.critical_point(initial_t=300., v_nd=vnd, print_progress=True, get_volume=True)
     # Pc, Tc, vc = (348.13847810761837 * 1e5, 667.5455878098154, 5.457006625794028e-05)
     print('{:18s}'.format('P_crit (bar):'), Pc*cst.patobar)
     print('{:18s}'.format('T_crit (K):'), Tc)
@@ -1356,7 +1386,7 @@ def main():
     #             # ig = (0.4 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200., 50 * (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.)
     #         else:
     #             ig = vle
-    #         pv, vle = s2.vapour_pressure(t, initial_guess=ig, get_volume=True, print_results=False)
+    #         pv, vle = s.vapour_pressure(t, initial_guess=ig, get_volume=True, print_results=False)
     #         if abs(vle[0] - vle[1]) < 1e-6:
     #             print(f'VLE points solver failed to converge at meaningful results at T={t:5.2f}, points too similar ({vle[0]:7.3e}, {vle[1]:7.3e})')
     #             vle = ig
@@ -1372,33 +1402,29 @@ def main():
     #         print('VLE solver failed at T={t:5.2f} due to out of range operations. Current point aborted.')
 
     # df = pd.DataFrame(np.column_stack([t_data, p_data, vl_data, vv_data, rhol, rhog]))
-    # outputfile = 'saftvrm-propane-vle.csv'
+    # outputfile = 'saftvrm-co2-vle.csv'
     # df.to_csv(outputfile, index=False, header=['T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
     # print()
     # print(f'Data generation complete. Output file: {outputfile}', ' '*5)
 
     # print('=====================')
-    testgp = s._System__getp([0.033], 400)
-    print('{:18s}'.format('Testing __getp:'), testgp)
-    testdgp_1 = s._System__getp([0.033+1e-9], 400) - testgp
-    testdgp_2 = s._System__getp([0.033-1e-9], 400) - testgp
-    print('{:18s}'.format('Testing d(__getp):'), (testdgp_1 - testdgp_2)/2e-9)
-    Var.set_order(2)
-    jacdgp = s._System__getp_jac([0.033], 400)
-    print('{:18s}'.format('Testing jac(__getp):'), jacdgp)
+    # testgp = s._System__getp([0.033], 400)
+    # print('{:18s}'.format('Testing __getp:'), testgp)
+    # testdgp_1 = s._System__getp([0.033+1e-9], 400) - testgp
+    # testdgp_2 = s._System__getp([0.033-1e-9], 400) - testgp
+    # print('{:18s}'.format('Testing d(__getp):'), (testdgp_1 - testdgp_2)/2e-9)
+    # Var.set_order(2)
+    # jacdgp = s._System__getp_jac([0.033], 400)
+    # print('{:18s}'.format('Testing jac(__getp):'), jacdgp)
 
     print('=====================')
 
     print('Testing SAFT-g-Mie GC')
-    CH3 = GroupType(15.04982, 6., 0.4077257, 256.7662, shape_factor=0.5725512, id_seg=1)
-    CH2 = GroupType(19.87107, 6., 0.4880081, 473.3893, shape_factor=0.2293202, id_seg=1)
-    COO = GroupType(31.189, 6., 0.39939, 868.92, shape_factor=0.65264, id_seg=1)
-    GroupType.combining_e_val(CH3, CH2, 350.772)
-    GroupType.combining_e_val(CH3, COO, 402.75)
-    GroupType.combining_e_val(COO, CH2, 498.86)
-    GroupType.print_table()
+
+    # GroupType.print_table()
     comps = {}
     puresys = {}
+
     for i in range(2,11):
         key = 'C' + str(i)
         comps[key] = Component(i * 12.0107 + (i*2+2) * 1.00784)
@@ -1408,31 +1434,55 @@ def main():
             comps[key].quick_set((CH3, 2), (CH2, i-2))
         puresys[key] = System().quick_set((comps[key], 1000))
 
-    # pc_data = np.array([])
-    # tc_data = np.array([])
-    # rhoc_data = np.array([])
-    # for i in range(2,11):
-    #     key = 'C' + str(i)
-    #     t_init = (i+1)**0.7 * 256.77 * 0.40772
-    #     v_init =  (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.
-    #     v_range = np.logspace(math.log10(v_init/2), math.log10(v_init*2), 30)
-    #     (pc, tc, rhoc) = puresys[key].critical_point(initial_t=t_init, v_nd=v_range, get_volume=False, get_density=True, print_results=False, print_progress=False)
-    #     pc_data = np.append(pc_data, pc*cst.patobar)
-    #     tc_data = np.append(tc_data, tc)
-    #     rhoc_data = np.append(rhoc_data, rhoc)
-    #     print('Critical point: pressure = {:6.3f} bar, temperature = {:6.3f} K, density = {:6.3f} kg/m3'.format(pc*cst.patobar, tc, rhoc))
+    print('='*20)
+    print('Testing')
+    puresys['C3'].volume = 3000
+    print('{:18s}'.format('ahs: '), puresys['C3']._System__a_hs())
+    print('{:18s}'.format('a1: '), puresys['C3']._System__a_1())
+    print('{:18s}'.format('a2: '), puresys['C3']._System__a_2())
+    print('{:18s}'.format('a3: '), puresys['C3']._System__a_3())
+    print('{:18s}'.format('a: '), puresys['C3'].helmholtz())
+    print('{:18s}'.format('a_ideal: '), puresys['C3'].a_ideal() * 1000 * cst.k * 293)
+    print('{:18s}'.format('a_mono: '), puresys['C3'].a_mono() * 1000 * cst.k * 293)
+    print('{:18s}'.format('a_chain: '), puresys['C3'].a_chain())
+    print('{:18s}'.format('v: '), puresys['C3'].volume)
+    print('{:18s}'.format('T: '), puresys['C3'].temp)
+    print('{:18s}'.format('mol: '), puresys['C3']._System__moltol())
+    print('{:18s}'.format('g_mie: '), puresys['C3']._System__gmieii(comps['C3'].get_gtypeii()))
+    print('{:18s}'.format('g_hs: '), puresys['C3']._System__gdhs(comps['C3'].get_gtypeii()))
+    print('{:18s}'.format('g_1: '), puresys['C3']._System__g1(comps['C3'].get_gtypeii()))
+    print('{:18s}'.format('g_2: '), puresys['C3']._System__g2(comps['C3'].get_gtypeii()))
+    print('{:18s}'.format('hsd: '), CH3.hsdiam(293), CH2.hsdiam(293), (CH3+CH2).hsdiam(293), (CH3.hsdiam(293) + CH2.hsdiam(293))/2)
 
-    # df = pd.DataFrame(np.column_stack([pc_data, tc_data, rhoc_data]))
-    # outputfile = 'saftgmie-alkane-crit.csv'
-    # df.to_csv(outputfile, index=False, header=['p_c (bar)', 't_c (K)', 'rho_c (mol/m3)'])
-    # print(f'Data generation complete. Output file: {outputfile}', ' '*5)
 
-    inputfile = 'saftgmie-alkane-crit.csv'
-    df = pd.read_csv(inputfile)
+    print('='*20)
 
-    pc_data = df.iloc[:,0].values
-    tc_data = df.iloc[:,1].values
-    rhoc_data = df.iloc[:,2].values
+    '''
+    pc_data = np.array([])
+    tc_data = np.array([])
+    rhoc_data = np.array([])
+    for i in range(2,11):
+        key = 'C' + str(i)
+        t_init = (i+1)**0.7 * 256.77 * 0.40772
+        v_init =  (i * 12.0107 + (i*2+2) * 1.00784) * 0.001 / 200.
+        v_range = np.logspace(math.log10(v_init/2), math.log10(v_init*2), 30)
+        (pc, tc, rhoc) = puresys[key].critical_point(initial_t=t_init, v_nd=v_range, get_volume=False, get_density=True, print_results=False, print_progress=False)
+        pc_data = np.append(pc_data, pc*cst.patobar)
+        tc_data = np.append(tc_data, tc)
+        rhoc_data = np.append(rhoc_data, rhoc)
+        print('Critical point: pressure = {:6.3f} bar, temperature = {:6.3f} K, density = {:6.3f} mol/m3'.format(pc*cst.patobar, tc, rhoc))
+
+    df = pd.DataFrame(np.column_stack([pc_data, tc_data, rhoc_data]))
+    outputfile = 'saftgmie-alkane-crit-int.csv'
+    df.to_csv(outputfile, index=False, header=['p_c (bar)', 't_c (K)', 'rho_c (mol/m3)'])
+    print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+
+    # inputfile = 'saftgmie-alkane-crit-int.csv'
+    # df = pd.read_csv(inputfile)
+
+    # pc_data = df.iloc[:,0].values
+    # tc_data = df.iloc[:,1].values
+    # rhoc_data = df.iloc[:,2].values
 
     carbon = np.array([])
     t_data = np.array([])
@@ -1477,10 +1527,12 @@ def main():
         rhog = np.append(rhog, rhoc_data[i-2])
 
     df = pd.DataFrame(np.column_stack([carbon, t_data, p_data, vl_data, vv_data, rhol, rhog]))
-    outputfile = 'saftgm-gc-alkanes-vle.csv'
+    outputfile = 'saftgm-gc-alkanes-vle-int.csv'
     df.to_csv(outputfile, index=False, header=['Carbons', 'T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
     print()
     print(f'Data generation complete. Output file: {outputfile}', ' '*5)
+    '''
+
     # ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
     # vget = s.single_phase_v(1e5, 300, vle_ig=ig, print_results=False)
     # print('{:18s}'.format('Finding v(P,T) with least_sq:'), vget)

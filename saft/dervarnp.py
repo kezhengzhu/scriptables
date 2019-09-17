@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python
 
 import math
 import numpy as np
@@ -46,9 +46,11 @@ class Var(object):
         self.on = True
         if order == None: order = Var.order
         if Var.count_grad: Var.grad_count += 1
+        if order < 1: order = 1
         getnextvar = False if order == 1 else True
         if self.grad_val is None:
-            self.grad_val = sum(vmul(coeff, var.grad(getvar=True, order=order-1), order=order) for (coeff, var) in self.children)
+            nxtorder = max(order - 1, 1)
+            self.grad_val = sum(vmul(coeff, var.grad(getvar=True, order=nxtorder), order=order) for (coeff, var) in self.children)
             self.isreset = False
         self.on = False
         if (not getvar) and isinstance(self.grad_val, Var):
@@ -237,6 +239,29 @@ class Var(object):
             return self.value >= other
         checkerr(isinstance(other, Var), "Var comparison works with only other Vars and int/floats")
         return self.value >= other.value
+
+    def __abs__(self):
+        if self.value < 0:
+            return -self
+        return self
+
+    @classmethod
+    def sum(cls, *args):
+        zval = 0.
+        z = Var(0.)
+        isvar = False
+        for arg in args:
+            checkerr(isinstance(arg, (Var, int, float, np.ndarray)), "Var.sum only usable for Var, int, floats and numpy array types.")
+            if isinstance(arg, Var):
+                zval += arg.value
+                arg.children.append((1, z))
+                isvar = True
+            else:
+                zval += arg
+        z.value = zval
+
+        return z if isvar else zval
+
 
 def vmul(x, y, order=Var.order):
     '''
