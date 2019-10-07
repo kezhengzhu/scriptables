@@ -1134,7 +1134,8 @@ class AssocSite(object):
 
 
 class GroupType(object):
-    _table = np.array([[0.]])
+    _etable = np.array([[0.]])
+    _lrtable = np.array([[0.]])
     _total = 0
     def __init__(self, lambda_r, lambda_a, sigma, epsilon, shape_factor=1, id_seg=1, comb=False):
         self.rep = lambda_r
@@ -1144,6 +1145,7 @@ class GroupType(object):
         self.sk = shape_factor # dimensionless segments
         self.vk = id_seg # identical segments in a group
         self.children = []
+        self.comb = comb
         if comb == False:
             self.index = GroupType._total
             GroupType._total += 1
@@ -1151,16 +1153,20 @@ class GroupType(object):
 
     @classmethod
     def add_elem(cls):
-        t = cls._table
+        t1 = cls._etable
+        t2 = cls._lrtable
         if cls._total > 1:
-            t2 = np.append(t, np.zeros((1, t.shape[1])), axis=0)
-            cls._table = np.append(t2, np.zeros((t2.shape[0], 1)), axis=1)
+            t12 = np.append(t1, np.zeros((1, t1.shape[1])), axis=0)
+            cls._etable = np.append(t12, np.zeros((t12.shape[0], 1)), axis=1)
+            t22 = np.append(t2, np.zeros((1, t2.shape[1])), axis=0)
+            cls._lrtable = np.append(t22, np.zeros((t22.shape[0], 1)), axis=1)
 
 
     @classmethod
     def print_table(cls):
-        print("Total GroupTypes: ", cls._total)
-        print(cls._table)
+        print("{:40s}".format("Total defined group types: "), cls._total)
+        print("{:40s}".format("Combination k values for Epsilon: "), cls._etable)
+        print("{:40s}".format("Combination k values for Lambda_r: "), cls._lrtable)
 
     @classmethod
     def combining_e_kij(cls, g1, g2, val):
@@ -1169,8 +1175,8 @@ class GroupType(object):
             i2 = g2.index
         except:
             raise Exception("Index not available. Do not set combination rules for group combinations")
-        cls._table[i1,i2] = val
-        cls._table[i2,i1] = val
+        cls._etable[i1,i2] = val
+        cls._etable[i2,i1] = val
 
     @classmethod
     def combining_e_val(cls, g1, g2, val):
@@ -1187,8 +1193,8 @@ class GroupType(object):
         actl = sqrt(pow(s1,3) * pow(s2,3)) / pow((s1+s2)/2, 3) * sqrt(e1 * e2)
         ratio = val / actl
         kij = 1 - ratio
-        cls._table[i1,i2] = kij
-        cls._table[i2,i1] = kij
+        cls._etable[i1,i2] = kij
+        cls._etable[i2,i1] = kij
     
     @classmethod
     def combining_lr_gij(cls, g1, g2, val):
@@ -1230,9 +1236,15 @@ class GroupType(object):
     def __add__(self, other):
         sig = (self.sigma + other.sigma) / 2
         epsi = sqrt(pow(self.sigma, 3) * pow(other.sigma, 3)) / pow(sig,3) * sqrt(self.epsilon * other.epsilon)
-        ratio = 1 - GroupType._table[self.index, other.index]
-        epsi = ratio*epsi
-        rep = 3 + sqrt( (self.rep - 3) * (other.rep - 3) )
+        if not (self.comb and other.comb):
+            ratio = 1 - GroupType._etable[self.index, other.index]
+            epsi = ratio*epsi
+        
+        repratio = sqrt( (self.rep - 3) * (other.rep - 3) )
+        if not (self.comb and other.comb):
+            ratio = 1 - GroupType._lrtable[self.index, other.index]
+            repratio = ratio * repratio
+        rep = 3 + repratio
         att = 3 + sqrt( (self.att - 3) * (other.att - 3) )
 
         z = GroupType(rep, att, sig, epsi, shape_factor=None, id_seg=None, comb=True)
