@@ -1457,7 +1457,7 @@ def main():
 
     print('='*20)
 
-    '''
+    
     pc_data = np.array([])
     tc_data = np.array([])
     rhoc_data = np.array([])
@@ -1531,7 +1531,7 @@ def main():
     df.to_csv(outputfile, index=False, header=['Carbons', 'T (K)', 'P (bar)', 'v_l (mol/m3)', 'v_v (mol/m3)', 'rho_l (m3/mol)', 'rho_v(m3/mol)'])
     print()
     print(f'Data generation complete. Output file: {outputfile}', ' '*5)
-    '''
+    
 
     # ig = ((0.29715584 * cst.nmtom)**3 * cst.Na, 100*(0.29715584 * cst.nmtom)**3 * cst.Na)
     # vget = s.single_phase_v(1e5, 300, vle_ig=ig, print_results=False)

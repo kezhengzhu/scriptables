@@ -42,21 +42,21 @@ def hsdiam(T_s, rep, att=6, x_inf=0):
     wgl = np.array([0.06667134431, 0.14945134915, 0.21908636252, 0.26926671931, 0.29552422471])
     x1i = 0.5 * (1 + x_inf + xgl *(1-x_inf))
     x2i = 0.5 * (1 + x_inf - xgl *(1-x_inf))
-    # xsum = sum(wgl * ((x1i**2 * np.exp(-mie_s(x1i, rep, att) / T_s)) + (x2i**2 * np.exp(-mie_s(x2i, rep, att) / T_s))) )
+    xsum = sum(wgl * ((x1i**2 * np.exp(-mie_s(x1i, rep, att) / T_s)) + (x2i**2 * np.exp(-mie_s(x2i, rep, att) / T_s))) )
     # Loop to cater to Var 
-    # xsum = 0.
-    # for i in range(len(x1i)):
-    #     xsum = xsum + wgl[i] * ((x1i[i]**2 * exp(-mie_s(x1i[i], rep, att) / T_s)) + (x2i[i]**2 * exp(-mie_s(x2i[i], rep, att) / T_s)))
+    xsum = 0.
+    for i in range(len(x1i)):
+        xsum = xsum + wgl[i] * ((x1i[i]**2 * exp(-mie_s(x1i[i], rep, att) / T_s)) + (x2i[i]**2 * exp(-mie_s(x2i[i], rep, att) / T_s)))
 
-    # dcube_s = 1 - (3 * (1-x_inf) / 2 * xsum)
-    # dhs_s = pow(dcube_s, 1/3)
-    intv = 129
-    r_s = np.flip(np.linspace(1.,0.,intv, endpoint=False))
-    uu = mie_s(r_s,rep,att)
-    expu = np.exp(-uu/T_s)
-    # d3 = np.trapz(expu, r_s)
-    d3 = integrate.romb(expu, 1/intv)
-    return 1-d3
+    dcube_s = 1 - (3 * (1-x_inf) / 2 * xsum)
+    dhs_s = pow(dcube_s, 1/3)
+    # intv = 129
+    # r_s = np.flip(np.linspace(1.,0.,intv, endpoint=False))
+    # uu = mie_s(r_s,rep,att)
+    # expu = np.exp(-uu/T_s)
+    # # d3 = np.trapz(expu, r_s)
+    # d3 = integrate.romb(expu, 1/intv)
+    return dhs_s
 
 def inv_angle(angle):
     '''
