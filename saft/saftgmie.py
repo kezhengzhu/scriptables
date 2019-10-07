@@ -1190,6 +1190,32 @@ class GroupType(object):
         cls._table[i1,i2] = kij
         cls._table[i2,i1] = kij
     
+    @classmethod
+    def combining_lr_gij(cls, g1, g2, val):
+        try:
+            i1 = g1.index
+            i2 = g2.index
+        except:
+            raise Exception("Index not available. Do not set combination rules for group combinations")
+        cls._lrtable[i1,i2] = val
+        cls._lrtable[i2,i1] = val
+
+    @classmethod
+    def combining_lr_val(cls, g1, g2, val):
+        try:
+            i1 = g1.index
+            i2 = g2.index
+        except:
+            raise Exception("Index not available. Do not set combination rules for group combinations")
+        lr1 = g1.rep
+        lr2 = g2.rep
+
+        intm = val - 3
+        ratio = intm / sqrt((lr1 - 3) * (lr2 - 3))
+        gij = 1 - ratio
+        cls._lrtable[i1,i2] = gij
+        cls._lrtable[i2,i1] = gij
+
     def __repr__(self):
         return '<GroupType({:4.3f} nm, {:4.3f} K, rep={:5.3f}, att={:5.3f})>'.format(self.sigma, self.epsilon, self.rep, self.att)
 
@@ -1334,12 +1360,22 @@ def main():
     # print('{:18s}'.format('v at 20bar 400K:'), getv)
     # print()
     # print('='*21)
-
+    CH4 = GroupType(12.504, 6., 0.3737, 152.575, shape_factor=1, id_seg=1)
     CH3 = GroupType(15.04982, 6., 0.4077257, 256.7662, shape_factor=0.5725512, id_seg=1)
     CH2 = GroupType(19.87107, 6., 0.4880081, 473.3893, shape_factor=0.2293202, id_seg=1)
     COO = GroupType(31.189, 6., 0.39939, 868.92, shape_factor=0.65264, id_seg=1)
     CO2 = GroupType(26.408, 5.055, 0.305, 207.891, shape_factor=0.847, id_seg=2)
     CH = GroupType(8.0, 6.0, 0.5295, 95.621, shape_factor=0.0721, id_seg=1)
+    C2H6 = GroupType(10.16, 6., 0.3488, 165.513, shape_factor=0.855, id_seg=2)
+
+    GroupType.combining_e_val(CH4, CH3, 193.97079)
+    GroupType.combining_lr_val(CH4, CH3, 12.62762)
+    GroupType.combining_e_val(CH4, CH2, 243.12915)
+    GroupType.combining_lr_val(CH4, CH2, 12.64155)
+    GroupType.combining_e_val(CH4, CH, 297.2062)
+    GroupType.combining_lr_val(CH4, CH, 10.996)
+    GroupType.combining_e_val(CH4, CO2, 144.722)
+    GroupType.combining_lr_val(CH4, CO2, 11.95)
 
     GroupType.combining_e_val(CH3, CH2, 350.77)
     GroupType.combining_e_val(CH3, COO, 402.75)
@@ -1348,6 +1384,7 @@ def main():
     GroupType.combining_e_val(CH3, CH, 387.48)
     GroupType.combining_e_val(CH2, CO2, 276.453)
     GroupType.combining_e_val(CH2, CH, 506.21)
+    GroupType.combining_e_val(C2H6, CO2, 175.751)
 
     print('Testing locating critical point')
     co2comp = Component(44.01)
