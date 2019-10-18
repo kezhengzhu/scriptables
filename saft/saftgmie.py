@@ -451,8 +451,8 @@ class System(object):
             gmieii = self.__gmieii(self.comps[comp].get_gtypeii())
             for g in self.comps[comp].gtypes:
                 numg_ki = self.comps[comp].gtypes[g]
-                c_cont += (numg_ki * g.vk * g.sk - 1) 
-            result += molfrac * c_cont * log(gmieii)
+                c_cont += (numg_ki * g.vk * g.sk) 
+            result += molfrac * (c_cont - 1) * log(gmieii)
         result = -result
         return result
 
